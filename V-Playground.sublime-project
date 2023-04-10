@@ -1,0 +1,78 @@
+{
+	"folders": [
+
+		{
+			"path"						: "../DLSL",
+			"name"						: "DLSL",
+			"file_exclude_patterns"		: [ "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk" ],
+			"folder_exclude_patterns"	: [ ".dub", "lib", "Debug", "Release" ],
+		},
+
+		{
+			"name": "D_ImGui",
+			"path": "../D_ImGui",
+			"file_exclude_patterns": [ "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk", "*.opendb", "*.sln", "*.vcx*" ],
+			"folder_exclude_patterns": [ ".dub", "lib", "Debug", "Release", ".vs" ]
+		},
+
+		{
+			"name": "V-Erupt",
+			"path": "../V-Erupt",
+			"file_exclude_patterns": [ "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk" ],
+			"folder_exclude_patterns": [ "source", ".dub", "lib", "Debug", "Release" ]
+		},
+
+		{
+			"path"						: "../ErupteD",
+			"name"						: "ErupteD",
+			"file_exclude_patterns"		: [ "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk" ],
+			"folder_exclude_patterns"	: [ ".dub", "lib", "Debug", "Release" ],
+		},
+
+		{
+			"name": "LBMethoD",
+			"path": "../LBMethoD",
+			"file_exclude_patterns": [ "*.spv", "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk" ],
+			"folder_exclude_patterns": [ "source", "shader", ".dub", "lib", "Debug", "Release" ]
+		},
+
+		{
+			"path"						: "../V-Drive",
+			"name"						: "V-Drive",
+			"file_exclude_patterns"		: [ "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk" ],
+			"folder_exclude_patterns"	: [ ".dub", "lib", "Debug", "Release" ]
+		},
+
+
+
+
+
+		{
+			"name": "V-Playground",
+			"path": ".",
+			"file_exclude_patterns": [ "*.spv", "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk" ],
+			"folder_exclude_patterns": [ "source", "shader", ".dub", "lib", "Debug", "Release" ]
+		},
+
+		{
+			"name": "vplayground",
+			"path": "source",
+			"file_exclude_patterns": [ "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk", "*.deps", "*.dbuildstat" ],
+			"folder_exclude_patterns": [ ".dub", "lib", "Debug", "Release" ]
+		},
+
+		{
+			"name": "shader",
+			"path": "shader",
+			"file_exclude_patterns": [ "*.exe", "*.exe_cv", "*.visualdproj", "*.lnk", "*.spv" ],
+			"folder_exclude_patterns": [ ".dub", "lib", "Debug", "Release" ]
+		},
+
+	],
+	"settings":
+	{
+		"detect_indentation": true,
+		"tab_size": 4,
+		"translate_tabs_to_spaces": false
+	}
+}

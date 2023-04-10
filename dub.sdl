@@ -1,0 +1,29 @@
+name                "vplayground"
+targetName          "V-Playground"
+targetType          "executable"
+description         "Collection of various Tests, Effects, Algorithms, Extensions, etc."
+homepage            ""
+copyright           "Copyright (c) 2023 Peter Particle"
+authors             "Peter Particle"
+license             "MIT"
+
+dependency          "bindbc-glfw"       version="~>1.0.0"
+subConfiguration    "bindbc-glfw"       "dynamicBC"
+versions            "GLFW_33"           "BindGLFW_NoGC_Callbacks"
+
+dependency          "erupted"           path    = "../ErupteD"
+dependency          "vdrive"            path    = "../V-Drive"
+dependency          "d_imgui"           path    = "../D_ImGui"
+dependency          "dlsl"              path    = "../DLSL"
+
+libs                "Imm32" "User32"
+
+buildRequirements   "allowWarnings"
+
+buildType "release-noinline" {
+    buildOptions "releaseMode" "optimize" "noBoundsCheck"
+}
+
+//buildOptions "verbose"
+//buildOptions "betterC"
+
