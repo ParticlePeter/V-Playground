@@ -1,0 +1,8 @@
+.dub/
+.vs/
+*.spv
+dub.selections.json
+*.sublime-workspace
+*.sln
+*.pdb
+*.exe

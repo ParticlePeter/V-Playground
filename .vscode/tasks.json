@@ -1,0 +1,20 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "dub",
+			"run": true,
+			"cwd": "d:/Work/Vulkan/DLang/V-Playground",
+			"compiler": "$current",
+			"archType": "$current",
+			"buildType": "$current",
+			"configuration": "$current",
+			"problemMatcher": [
+				"$dmd"
+			],
+			"group": "build",
+			"label": "dub: Run vplayground",
+			"detail": "dub run --compiler=dmd.EXE -a=x86_64 -b=debug -c=application"
+		}
+	]
+}

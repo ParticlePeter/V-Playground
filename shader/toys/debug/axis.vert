@@ -7,8 +7,8 @@ layout( std140, binding = 0 ) uniform uboViewer {
 
 // Push Constants
 layout( push_constant ) uniform Push_Constant {
-    float segment_angle;
-} pc;
+    float Axis_Segment_Angle;
+};
 
 // Vertex Shader Output
 layout( location = 0 ) out vec4 vs_color;       // vertex shader output vertex color, will be interpolated and rasterized
@@ -18,8 +18,9 @@ out gl_PerVertex {                              // not redifining gl_PerVertex u
 };                                              // error seems to have vanished by now, but it does no harm to keep this redefinition
 
 #define VI gl_VertexIndex
+#define II gl_InstanceIndex
 
-
+/*
 const vec4[] colors = {
     vec4( 0, 0, 1, 1 ),
     vec4( 0, 1, 1, 1 ),
@@ -28,27 +29,34 @@ const vec4[] colors = {
     vec4( 1, 0, 0, 1 ),
     vec4( 1, 0, 1, 1 ),
 };
+*/
+
+const vec2[] profile = {
+    vec2(0.00, 1.0),
+    vec2(0.10, 0.6),
+    vec2(0.05, 0.6),
+    vec2(0.05, 0.0),
+    vec2(0)
+};
 
 
-
-// vkCmdDraw
 void main() {
+    vec4 pos = vec4(0,0,0,1);
+    float cos_angle = cos( VI / 2 * Axis_Segment_Angle );
+    float sin_angle = sin( VI / 2 * Axis_Segment_Angle );
+    mat2 ROT = mat2( cos_angle, sin_angle, - sin_angle, cos_angle );
+    pos.xy = profile[ ((II % 4) + (VI % 2)) ];
+    pos.xz = ROT * pos.xz;
 
-    vec4 pos = vec4( 0, 0, 0, 1 );
-    vs_color = pos;
+    // an axis consists of 4 instanced triangle strips
+    // every 4th instance we rotat the axis and color it differently
+    uint IA = II / 4;
 
-    if( VI % 2 > 0 ) {
-        pos.xy = vec2( -1, -1 );
+    if (IA == 1) pos.xy = vec2(pos.y, -pos.x);
+    if (IA == 2) pos.zy = vec2(pos.y, -pos.z);
 
-        int vi = VI >> 1;
-        float cos_angle = cos( vi * pc.segment_angle );
-        float sin_angle = sin( vi * pc.segment_angle );
-        mat2 ROT = mat2( cos_angle, sin_angle, - sin_angle, cos_angle );
-
-        pos.xz = ROT * pos.xz;
-        vs_color = colors[ vi % 6 ];
-    }
-
+    vs_color = vec4(0, 0, 0, 1);
+    vs_color[ (1 + 3 - IA) % 3 ] = 1;
     gl_Position = WVPM * pos;
 }
 

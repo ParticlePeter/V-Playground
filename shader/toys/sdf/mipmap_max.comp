@@ -1,0 +1,48 @@
+// --- COMP ---
+#version 450 core
+#extension GL_EXT_nonuniform_qualifier : enable
+
+// local work group defaults, when constants are not defined
+layout(local_size_x = 32) in;
+layout(local_size_y = 32) in;
+layout(local_size_z =  1) in;
+
+
+// push constants
+layout( push_constant ) uniform Push_Constant {
+    uint trg_mip;
+};
+
+
+// Write only to one channel 16 bit float image
+layout(binding = 3, r16f /*rgba16f*/) uniform image2D noise_img[];
+
+
+void main(void) {
+
+    ivec2 trg_coord = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(trg_coord, imageSize(noise_img[trg_mip]).xy)))
+        return;
+
+    ivec2 src_coord = 2 * trg_coord;
+    uint  src_mip = trg_mip - 1;
+
+
+    //*
+
+    float m = max(
+        max(imageLoad(noise_img[src_mip], src_coord), imageLoad(noise_img[src_mip], src_coord + 1)),
+        max(imageLoad(noise_img[src_mip], src_coord + ivec2(1, 0)), imageLoad(noise_img[src_mip], src_coord + ivec2(0, 1)))
+    ).r;
+        
+    imageStore(noise_img[trg_mip], trg_coord, vec4(m));
+
+    /*/
+
+    int cs = 4;
+    float checker = abs((trg_coord.x / cs) % 2) - ((trg_coord.y / cs) % 2);
+    imageStore(noise_img[trg_mip], trg_coord, vec4(checker));
+
+    //*/
+
+}

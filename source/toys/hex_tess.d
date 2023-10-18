@@ -1,172 +1,85 @@
 module toys.hex_tess;
 
-import bindbc.glfw;
-
-import dlsl.matrix;
-
 import app;
 import input;
+import vdrive;
 import erupted;
-
-import vdrive.buffer;
-import vdrive.memory;
-import vdrive.pipeline;
-import vdrive.util.util;
-import vdrive.util.array;
+import dlsl.vector;
 
 
-
-string name() pure nothrow @nogc { return "Hex Tesselate"; }
-
-///////////////////////////////////////////////////////
-// setup required features for device initialization //
-///////////////////////////////////////////////////////
-VkPhysicalDeviceFeatures getRequiredFeatures() {
-    VkPhysicalDeviceFeatures features;
-    features.fillModeNonSolid = true;
-    features.largePoints = true;
-    features.wideLines = true;
-    return features;
-}
-
-/*
+nothrow @nogc:
 
 private {
+    Core_Pipeline   pso_surf;
     Core_Pipeline   pso_wire;
     Core_Pipeline   pso_pnts;
 
     Core_Buffer     vtx_buffer;
     Core_Buffer     idx_buffer;
     VkDeviceMemory  buffer_memory;
+
+    vec3 surf_color = vec3( 0.5f, 0.5f, 0.5f );
+    vec3 wire_color = vec3( 1.0f, 1.0f, 0.0f );
+    vec3 pnts_color = vec3( 1.0f, 0.0f, 0.0f );
+
+    uint div_count = 3;     // division count
+    uint vtx_count;         // calculated based on division count
+    uint idx_count;         // calculated based on division count
 }
 
 
-
-////////////////////////////////////////////////////////////////////
-// create window size independent resources once before draw loop //
-////////////////////////////////////////////////////////////////////
-
-void createResources( ref App_State app, bool recreate = false ) {
-
-    /////////////////////////////////
-    // create fence and semaphores //
-    /////////////////////////////////
-
-    import vdrive.synchronizer;
-    app.submit_fence[0] = app.createFence( VK_FENCE_CREATE_SIGNALED_BIT );          // fence to sync CPU and GPU once per frame
-    app.submit_fence[1] = app.createFence( VK_FENCE_CREATE_SIGNALED_BIT );          // fence to sync CPU and GPU once per frame
-
-    // rendering and presenting semaphores for VkSubmitInfo, VkPresentInfoKHR and vkAcquireNextImageKHR
-    app.acquired_semaphore = app.createSemaphore;   // signaled when a new swapchain image is acquired
-    app.rendered_semaphore = app.createSemaphore;   // signaled when submitted command buffer(s) complete execution
+// get toy's name and functions
+App.Toy GetToy() {
+    App.Toy toy;
+    toy.name        = "Hex Tesselate";
+    toy.features    = & getFeatures;
+//  toy.extDevice   = & getDeviceExtensions;
+    toy.create      = & createResources;
+    toy.record      = & recordCommands;
+    toy.destroy     = & destroyResources;
+//  toy.widgets     = & buildWidgets;
+    return toy;
+}
 
 
-
-    /////////////////////////////////////
-    // configure submit and present infos
-    /////////////////////////////////////
-
-    // draw submit info for vkQueueSubmit
-    with( app.submit_info ) {
-        waitSemaphoreCount      = 1;
-        pWaitSemaphores         = & app.acquired_semaphore;
-        pWaitDstStageMask       = & app.submit_wait_stage_mask; // configured before entering createResources func
-        commandBufferCount      = 1;
-    //  pCommandBuffers         = & app.cmd_buffers[ i ];       // set before submission, choosing cmd_buffers[0/1]
-        signalSemaphoreCount    = 1;
-        pSignalSemaphores       = & app.rendered_semaphore;
-    }
-
-    // present info for vkQueuePresentKHR
-    with( app.present_info ) {
-        waitSemaphoreCount      = 1;
-        pWaitSemaphores         = & app.rendered_semaphore;
-        swapchainCount          = 1;
-    //  pSwapchains             = & app.swapchain.swapchain;    // set after (re)creating swapchain
-    //  pImageIndices           = & next_image_index;           // set before presenting, using the acquired next_image_index
-    }
+// setup required extensions
+void getDeviceExtensions( ref App_Meta_Init meta_init ) {
+    meta_init.addDeviceExtension( VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME );
+    meta_init.addDeviceExtension( VK_KHR_MAINTENANCE_3_EXTENSION_NAME );
+}
 
 
-
-    //////////////////////////////////
-    // create matrix uniform buffer //
-    //////////////////////////////////
-
-    import vdrive.buffer;   // here we add
-    auto wvpm_buffer = Meta_Buffer_T!( App_State.Ubo_Buffer )( app )
-        .usage( VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT )
-        .bufferSize( 16 * float.sizeof )   // mat4.sizeof
-        .construct( VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT )
-        .mapMemory( app.wvpm )
-        .reset( app.wvpm_buffer );
-
-    // update projection matrix from member data _fovy, _near, _far and aspect of
-    // the swapchain extent, initialized once, resized by the input.windowSizeCallback
-    // however we can set _fovy, _near, _far to desired values before calling updateProjection
-    app.updateProjection;
-
-    // multiply projection with trackball (view) matrix and upload to uniform buffer
-    app.updateWVPM;
+// setup required features for device initialization
+void getFeatures( ref App_Meta_Init meta_init ) {
+    // Use App app to determine if features are available, and, if not, set a my_can_run member
+    meta_init.features.fillModeNonSolid = true;
+    meta_init.features.largePoints = true;
+    meta_init.features.wideLines = true;
+}
 
 
-
-    ///////////////////////////
-    // create descriptor set //
-    ///////////////////////////
-
-    import vdrive.descriptor;
-
-    {   // allocates and frees when leaving scope
-        app.descriptor = Meta_Descriptor( app )
-            .addUniformBufferBinding( 0, VK_SHADER_STAGE_VERTEX_BIT )
-            .addBufferInfo( app.wvpm_buffer.buffer )
-            .construct
-            .reset;
-    }
-
-
-
-    ////////////////////////////////////////////////////////////////
-    // create command pool, we might need now to move data on GPU //
-    ////////////////////////////////////////////////////////////////
-
-    import vdrive.commander;
-    app.cmd_pool = app.createCommandPool( app.graphics_queue_family_index );
-
-
-
-    ///////////////////////////////////////////////////////
-    // create window size dependent resources first time //
-    ///////////////////////////////////////////////////////
-
-    // this creates, among others, a render pass which is needed for PSO construction
-    app.resizeResources;
-
-
-
+// create shader input assembly buffer and PSO
+void createResources( ref App app )
+{
     /////////////////////////////////
     // geometry with draw commands //
     /////////////////////////////////
 
-    uint aDivisionCount = 3;
-    alias MC_Vector2f = vec2;
-
     // For the Vertex Count, we split the Hex into six Triangles and count the vertices of each triangle with d - 1 divisions.
     // This is very simple as we can use the triangular number scheme and little gauss sum formula (n * (n + 1)) / 2 = (n * n + n) / 2.
     // At the end we a add one for the Hex central vertex.
-    uint divisions = aDivisionCount + 1;      // for d divisions vertex count per hex triangle we would use aDivisionCount + 2
+    uint divisions = div_count + 1;      // for d divisions vertex count per hex triangle we would use aDivisionCount + 2
     uint tri_vtx_count = (divisions * divisions + divisions) / 2;       // vertex count of a hex triangle of aDivisonCount - 1
     uint hex_tri_count = 6;
-    uint vtx_count = 1 + hex_tri_count * tri_vtx_count;
+    vtx_count = 1 + hex_tri_count * tri_vtx_count;
 
     // For the Index Count, we split the Hex into six Triangles, and compute its (subdivided) Sub-Triangles
     // With each triangle, we can add a Triangle-Strip at the bottom, forming a new subdivided triangle, with the next division count.
     // Starting at division 0, each summand adding the next division count we get: 1 + 3 + 5 + 7 + 9 ... sub-triangles,
     // for a total per division of: 1, 4, 9, 16, 25. Thus the formula for the sub-triangles of a triangle count is (d + 1) ^ 2
     // for a total index count of: 3 * 6 * (d + 1) ^ 2 = 3 indexes per Tri * 6 Subdivided Triangles per Hex * (d + 1) ^ 2 Sub-Triangles
-    uint idx_count = 3 * hex_tri_count * divisions * divisions;
-    uint idx_offset = 0;
-
+    idx_count = 3 * hex_tri_count * divisions * divisions;
+    //uint idx_offset = 0;
 
     {
         // create  one vertex and one index buffer backed by one memory object
@@ -209,11 +122,11 @@ void createResources( ref App_State app, bool recreate = false ) {
         ushort idx = 0;
         for (ushort t = 0; t < hex_tri_count; ++t)
         {
-            MC_Vector2f stepA = hex_corners[ t ] / divisions;                   // invert winding with [ 5 - t ] and ...
-            MC_Vector2f stepB = hex_corners[ ( t + 2 ) % 6 ] / divisions;       // [ ( 5 - t + 4 ) % 6 ]
+            vec2 stepA = hex_corners[ t ] / divisions;                   // invert winding with [ 5 - t ] and ...
+            vec2 stepB = hex_corners[ ( t + 2 ) % 6 ] / divisions;       // [ ( 5 - t + 4 ) % 6 ]
             for (uint a = 1; a <= divisions; ++a)
             {
-                MC_Vector2f v = stepA * a;
+                vec2 v = stepA * a;
                 for (uint b = 0; b < a; ++b)
                 {
                     //idx++;
@@ -222,8 +135,8 @@ void createResources( ref App_State app, bool recreate = false ) {
             }
         }
 
-        import std.stdio;
-        writeln( vtx_count );
+        //import std.stdio;
+        //writeln( vtx_count );
 
         idx = 0;
         for (ushort s = 0; s < hex_tri_count; ++s)
@@ -349,8 +262,6 @@ void createResources( ref App_State app, bool recreate = false ) {
     }
 
 
-
-
     ////////////////////////////////////////
     // create pipeline state object (PSO) //
     ////////////////////////////////////////
@@ -359,9 +270,9 @@ void createResources( ref App_State app, bool recreate = false ) {
     // vdrive will compile them into spir-v with glslangValidator (must be in path!)
     import vdrive.pipeline, vdrive.shader;
     auto meta_graphics = Meta_Graphics( app );
-    app.pipeline = meta_graphics
-        .addShaderStageCreateInfo( app.createPipelineShaderStage( "example/sw_01_triangle/shader/hex_tess.vert" ))    // deduce shader stage from file extension
-        .addShaderStageCreateInfo( app.createPipelineShaderStage( "example/sw_01_triangle/shader/hex_tess.frag" ))    // deduce shader stage from file extension
+    pso_surf = meta_graphics
+        .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/hex_tess.vert" ))    // deduce shader stage from file extension
+        .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/hex_tess.frag" ))    // deduce shader stage from file extension
         .addBindingDescription( 0, vec2.sizeof, VK_VERTEX_INPUT_RATE_VERTEX )       // add vertex binding and attribute descriptions
         .addAttributeDescription( 0, 0, VK_FORMAT_R32G32_SFLOAT, 0 )                // 2D vertex coordinates
         .inputAssembly( VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST )                       // set the inputAssembly
@@ -371,11 +282,14 @@ void createResources( ref App_State app, bool recreate = false ) {
         .addColorBlendState( VK_FALSE )                                             // color blend state - append common (default) color blend attachment state
         .addDynamicState( VK_DYNAMIC_STATE_VIEWPORT )                               // add dynamic states viewport
         .addDynamicState( VK_DYNAMIC_STATE_SCISSOR )                                // add dynamic states scissor
+    //  .addDynamicState( VK_DYNAMIC_STATE_POLYGON_MODE_EXT )
         .addDescriptorSetLayout( app.descriptor.descriptor_set_layout )             // describe pipeline layout
         .addPushConstantRange( VK_SHADER_STAGE_FRAGMENT_BIT, 0, 12 )                // specify push constant range, 3 * sizeof( float )
         .renderPass( app.render_pass_bi.renderPass )                                // describe COMPATIBLE render pass
         .construct                                                                  // construct the Pipleine Layout and Pipleine State Object (PSO)
         .extractCore;                                                               // extract our core vulkan primitives for the normal shaded pipeline
+    //  .destroyShaderModules
+    //  .reset;
 
     pso_wire = meta_graphics
         .cullMode( VK_CULL_MODE_NONE )                                              // set rasterization state -  this cull mode is the default value
@@ -390,135 +304,131 @@ void createResources( ref App_State app, bool recreate = false ) {
         .destroyShaderModules                                                       // shader modules compiled into pipeline are shared with the prev pso, can now be deleted now
         .reset;                                                                     // build and capture points core pso data and reset state/data of Meta_Graphics struct
 
+}
+
+
+// record draw commands
+void recordCommands( ref App app, VkCommandBuffer cmd_buffer ) {
+
+    // bind vertex buffer, only one attribute stored in this buffer
+    VkDeviceSize offset = 0;
+    cmd_buffer.vkCmdBindVertexBuffers(
+        0,                                          // first binding
+        1,                                          // binding count
+        & vtx_buffer.buffer,                        // pBuffers to bind
+        & offset                                    // pOffsets into buffers
+    );
+
+    // bind index buffer
+    cmd_buffer.vkCmdBindIndexBuffer(
+        idx_buffer.buffer,                          // index buffer
+        0,                                          // offset
+        VK_INDEX_TYPE_UINT16                        // index type
+    );
+
+    cmd_buffer.vkCmdBindDescriptorSets(             // VkCommandBuffer              commandBuffer
+        VK_PIPELINE_BIND_POINT_GRAPHICS,            // VkPipelineBindPoint          pipelineBindPoint
+        pso_surf.pipeline_layout,                   // VkPipelineLayout             layout
+        0,                                          // uint32_t                     firstSet
+        1,                                          // uint32_t                     descriptorSetCount
+        & app.descriptor.descriptor_set,            // const( VkDescriptorSet )*    pDescriptorSets
+        0,                                          // uint32_t                     dynamicOffsetCount
+        null                                        // const( uint32_t )*           pDynamicOffsets
+    );
+
+
+    // bind graphics app.geom_pipeline
+    cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, pso_surf.pipeline );
+
+    // set polygon mode dynamically
+    //cmd_buffer.vkCmdSetPolygonModeEXT( VK_POLYGON_MODE_FILL );
+
+    // set push constant values for first, surface draw
+    cmd_buffer.vkCmdPushConstants( pso_surf.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, surf_color.sizeof, surf_color.ptr );
+
+    // simple draw command, non indexed
+    cmd_buffer.vkCmdDrawIndexed(
+        idx_count,                                  // index count
+        1,                                          // instance count
+        0,                                          // first index
+        0,                                          // vertex offset
+        0,                                          // first instance
+    );
 
 
 
-    /////////////////////////////////////////////////////////////
-    // create draw loop command buffers with resized resources //
-    /////////////////////////////////////////////////////////////
+    // bind graphics app.geom_pipeline
+    cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, pso_wire.pipeline );
 
-    // reset the command pool to start recording drawing commands
-    app.graphics_queue.vkQueueWaitIdle;                 // equivalent using a fence per Spec v1.0.48
-    app.device.vkResetCommandPool( app.cmd_pool, 0 );   // second argument is VkCommandPoolResetFlags
+    // set polygon mode dynamically
+    //cmd_buffer.vkCmdSetPolygonModeEXT( VK_POLYGON_MODE_LINE );
 
-    // this time cmd_buffers is an DArray!VkCommandBuffer, the array itself will be destroyed after this scope
-    app.allocateCommandBuffers( app.cmd_pool, app.cmd_buffers[ 0 .. app.swapchain.image_count ] );
+    // set push constant values for second, wire draw
+    cmd_buffer.vkCmdPushConstants( pso_wire.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, wire_color.sizeof, wire_color.ptr );
 
-    // define clear values
-    import vdrive.renderbuffer;
-    VkClearValue[ 2 ] clear_values;
-    clear_values
-        .set( 0, 1.0f )                      // set depth clear value
-        .set( 1, 0.0f, 0.0f, 0.0f, 1.0f );   // set color clear value
+    // simple draw command, non indexed
+    cmd_buffer.vkCmdDrawIndexed(
+        idx_count,  // index count
+        1,          // instance count
+        0,          // first index
+        0,          // vertex offset
+        0,          // first instance
+    );
 
-    vec3 surf_color = [ 0.5f, 0.5f, 0.5f ];
-    vec3 wire_color = [ 1.0f, 1.0f, 0.0f ];
-    vec3 pnts_color = [ 1.0f, 0.0f, 0.0f ];
+    // bind graphics app.geom_pipeline
+    cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, pso_pnts.pipeline );
 
-    // record command buffer for each swapchain image
-    foreach( i, ref cmd_buffer; app.cmd_buffers[ 0 .. app.swapchain.image_count ] ) {
+    // set polygon mode dynamically
+    //cmd_buffer.vkCmdSetPolygonModeEXT( VK_POLYGON_MODE_POINT );
 
-        // attach clear values and one of the framebuffers to the render pass
-        app.render_pass_bi.clearValues( clear_values );
-        app.render_pass_bi.framebuffer = app.framebuffers[ i ];
+    // set push constant values for second, wire draw
+    cmd_buffer.vkCmdPushConstants( pso_pnts.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pnts_color.sizeof, pnts_color.ptr );
 
-        // begin command buffer recording
-        VkCommandBufferBeginInfo cmd_buffer_bi;
-        cmd_buffer.vkBeginCommandBuffer( & cmd_buffer_bi );
-
-        // begin the render_pass
-        cmd_buffer.vkCmdBeginRenderPass( & app.render_pass_bi, VK_SUBPASS_CONTENTS_INLINE );
-
-        // take care of dynamic state
-        cmd_buffer.vkCmdSetViewport( 0, 1, & app.viewport );
-        cmd_buffer.vkCmdSetScissor(  0, 1, & app.scissors );
-
-        // bind vertex buffer, only one attribute stored in this buffer
-        VkDeviceSize offset = 0;
-        cmd_buffer.vkCmdBindVertexBuffers(
-            0,                                          // first binding
-            1,                                          // binding count
-            & vtx_buffer.buffer,                        // pBuffers to bind
-            & offset                                    // pOffsets into buffers
-        );
-
-        // bind index buffer
-        cmd_buffer.vkCmdBindIndexBuffer(
-            idx_buffer.buffer,                          // index buffer
-            0,                                          // offset
-            VK_INDEX_TYPE_UINT16                        // index type
-        );
-
-
-
-        // bind graphics app.geom_pipeline
-        cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, app.pipeline.pipeline );
-
-        cmd_buffer.vkCmdBindDescriptorSets(             // VkCommandBuffer              commandBuffer
-            VK_PIPELINE_BIND_POINT_GRAPHICS,            // VkPipelineBindPoint          pipelineBindPoint
-            app.pipeline.pipeline_layout,               // VkPipelineLayout             layout
-            0,                                          // uint32_t                     firstSet
-            1,                                          // uint32_t                     descriptorSetCount
-            & app.descriptor.descriptor_set,            // const( VkDescriptorSet )*    pDescriptorSets
-            0,                                          // uint32_t                     dynamicOffsetCount
-            null                                        // const( uint32_t )*           pDynamicOffsets
-        );
-
-        // set push constant values for first, surface draw
-        cmd_buffer.vkCmdPushConstants( app.pipeline.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, surf_color.sizeof, surf_color.ptr );
-
-        // simple draw command, non indexed
-        cmd_buffer.vkCmdDrawIndexed(
-            idx_count,                                  // index count
-            1,                                          // instance count
-            0,                                          // first index
-            0,                                          // vertex offset
-            0,                                          // first instance
-        );
-
-
-
-        // bind graphics app.geom_pipeline
-        cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, pso_wire.pipeline );
-
-        // set push constant values for second, wire draw
-        cmd_buffer.vkCmdPushConstants( pso_wire.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, wire_color.sizeof, wire_color.ptr );
-
-        // simple draw command, non indexed
-        cmd_buffer.vkCmdDrawIndexed(
-            idx_count,                                  // index count
-            1,                                          // instance count
-            0,                                          // first index
-            0,                                          // vertex offset
-            0,                                          // first instance
-        );
-
-
-
-        // bind graphics app.geom_pipeline
-        cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, pso_pnts.pipeline );
-
-        // set push constant values for second, wire draw
-        cmd_buffer.vkCmdPushConstants( pso_pnts.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, pnts_color.sizeof, pnts_color.ptr );
-
-        cmd_buffer.vkCmdDraw(
-            vtx_count,                                  // vertex count
-            1,                                          // instance count
-            0,                                          // first vertex
-            0                                           // first instance
-        );
-
-        // end the render pass
-        cmd_buffer.vkCmdEndRenderPass;
-
-        // end command buffer recording
-        cmd_buffer.vkEndCommandBuffer;
-    }
+    cmd_buffer.vkCmdDraw(
+        vtx_count,      // vertex count
+        1,              // instance count
+        0,              // first vertex
+        0               // first instance
+    );
 }
 
 
 // destroy resources and vulkan objects for rendering
-void destroyResources( ref App_State app ) {
+void destroyResources( ref App app ) {
+    app.destroy( pso_surf );
+    app.destroy( pso_wire );
+    app.destroy( pso_pnts );
+    app.destroy( vtx_buffer );
+    app.destroy( idx_buffer );
+    app.destroy( buffer_memory );
+}
+
+
+// Build Gui Widgets
+// void buildWidgets( ref App app ) {
+//     import ImGui = d_imgui;            
+//     if( ImGui.DragInt( "Cone Segment Count", & cone_segments, 0.1, 3, 256 )) {
+//         segment_angle = TAU / cone_segments;
+//     }
+// }
+
+/*
+
+
+
+
+
+////////////////////////////////////////////////////////////////////
+// create window size independent resources once before draw loop //
+////////////////////////////////////////////////////////////////////
+
+void createResources( ref App app, bool recreate = false ) {
+
+}
+
+
+// destroy resources and vulkan objects for rendering
+void destroyResources( ref App app ) {
 
     import erupted, vdrive;
 

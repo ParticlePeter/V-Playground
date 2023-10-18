@@ -16,7 +16,7 @@ nothrow @nogc:
 ////////////////////////////////////////////////////////////////////////
 // create vulkan related command and synchronization objects and data //
 ////////////////////////////////////////////////////////////////////////
-void createCommandObjects( ref App_State app, VkCommandPoolCreateFlags command_pool_create_flags = 0 ) {
+void createCommandObjects( ref App app, VkCommandPoolCreateFlags command_pool_create_flags = 0 ) {
 
     //
     // create command pools
@@ -38,7 +38,7 @@ void createCommandObjects( ref App_State app, VkCommandPoolCreateFlags command_p
 
 
     // rendering and presenting semaphores for VkSubmitInfo, VkPresentInfoKHR and vkAcquireNextImageKHR
-    foreach( i; 0 .. App_State.MAX_FRAMES ) {
+    foreach( i; 0 .. App.MAX_FRAMES ) {
         app.acquired_semaphore[i] = app.createSemaphore;        // signaled when a new swapchain image is acquired
         app.rendered_semaphore[i] = app.createSemaphore;        // signaled when submitted command buffer(s) complete execution
     }
@@ -76,7 +76,7 @@ void createCommandObjects( ref App_State app, VkCommandPoolCreateFlags command_p
 //////////////////////////////////////////////
 // create simulation related memory objects //
 //////////////////////////////////////////////
-void createMemoryObjects( ref App_State app ) {
+void createMemoryObjects( ref App app ) {
 
     // create static memory resources which will be referenced in descriptor set
     // the corresponding createDescriptorSet function might be overwritten somewhere else
@@ -85,12 +85,12 @@ void createMemoryObjects( ref App_State app ) {
     // create uniform buffers - called once
     //
 
-    auto wvpm_buffer = Meta_Buffer_T!( App_State.Ubo_Buffer )( app )
+    auto wvpm_buffer = Meta_Buffer_T!( App.Ubo_Buffer )( app )
         .usage( VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT )
-        .bufferSize( App_State.XForm_UBO.sizeof )
+        .bufferSize( App.UBO.sizeof )
         .construct( VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT )
-        .mapMemory( app.xform_ubo )
-        .reset( app.xform_ubo_buffer );
+        .mapMemory( app.ubo )
+        .reset( app.ubo_buffer );
 
     // update projection matrix from member data _fovy, _near, _far and aspect of
     // the swapchain extent, initialized once, resized by the input.windowSizeCallback
@@ -98,7 +98,7 @@ void createMemoryObjects( ref App_State app ) {
     app.updateProjection;
 
     // multiply projection with trackball (view) matrix and upload to uniform buffer
-    app.updateWVPM;
+    // app.updateWVPM; // will be updated wehen initializing the tbb (trackball-button)
 }
 
 
@@ -106,7 +106,23 @@ void createMemoryObjects( ref App_State app ) {
 ///////////////////////////
 // create descriptor set //
 ///////////////////////////
-void createDescriptorSet( ref App_State app ) {
+void createDescriptorSet( ref App app, ref Meta_Descriptor meta_descriptor ) {
+
+    // add toys descriptor
+    foreach( ref toy; app.my_toys.data )
+        if( toy.descriptor != null )
+            toy.descriptor( app, meta_descriptor );
+
+    app.descriptor = meta_descriptor     // App.descriptor is a Core_Descriptor
+        .addUniformBufferBinding( 0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT )    // UBO
+        .addBufferInfo( app.ubo_buffer.buffer )
+        .construct  // build and reset, returning a Core_Descriptor
+        .reset;
+}
+
+
+/*
+void createDescriptorSet( ref App app ) {
 
     // this is required if no Meta Descriptor has been passed in from the outside
     Meta_Descriptor_T!(9,3,8,4,3,2) meta_descriptor = app;    // temporary
@@ -116,7 +132,8 @@ void createDescriptorSet( ref App_State app ) {
     app.createDescriptorSet_T( meta_descriptor );
 }
 
-void createDescriptorSet_T( Descriptor_T )( ref App_State app, ref Descriptor_T meta_descriptor ) {
+
+void createDescriptorSet_T( Descriptor_T )( ref App app, ref Descriptor_T meta_descriptor ) {
 
     // configure descriptor set with required descriptors
     // the descriptor set will be constructed in createRenderRecources
@@ -124,27 +141,29 @@ void createDescriptorSet_T( Descriptor_T )( ref App_State app, ref Descriptor_T 
     // descriptors can be added through other means before finalizing
     // maybe we even might overwrite it completely in a parent struct
 
-    app.descriptor = meta_descriptor     // App_State.descriptor is a Core_Descriptor
+    app.descriptor = meta_descriptor     // App.descriptor is a Core_Descriptor
 
-        // XForm_UBO
-        .addUniformBufferBinding( 0, VK_SHADER_STAGE_VERTEX_BIT )
-        .addBufferInfo( app.xform_ubo_buffer.buffer )
+        // UBO
+        .addUniformBufferBinding( 0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT )
+        .addBufferInfo( app.ubo_buffer.buffer )
 
         // build and reset, returning a Core_Descriptor
         .construct
         .reset;
 }
-
+*/
 
 
 /////////////////////////////
 // create render resources //
 /////////////////////////////
-void createResources( ref App_State app ) {
+void createResources( ref App app ) {
 
     //
     // create non-gui related render resources, currently no-op
     //
+    foreach( ref toy; app.my_toys )
+        toy.create( app );
 }
 
 
@@ -152,7 +171,7 @@ void createResources( ref App_State app ) {
 ////////////////////////////////////////////////
 // (re)create window size dependent resources //
 ////////////////////////////////////////////////
-void resizeResources( ref App_State app, VkPresentModeKHR request_present_mode = VK_PRESENT_MODE_MAX_ENUM_KHR ) {
+void resizeResources( ref App app, VkPresentModeKHR request_present_mode = VK_PRESENT_MODE_MAX_ENUM_KHR ) {
 
     //
     // destroy possibly existing swapchain and image views, but keep the surface.
@@ -169,7 +188,7 @@ void resizeResources( ref App_State app, VkPresentModeKHR request_present_mode =
     //
 
     // Optionally, we can pass in a request present mode, which will be preferred. It will not be checked for availability.
-    // If VK_PRESENT_MODE_MAX_ENUM_KHR is passed in we check App_State.present_mode is valid and available (it's a setting, it will be set by ini file).
+    // If VK_PRESENT_MODE_MAX_ENUM_KHR is passed in we check App.present_mode is valid and available (it's a setting, it will be set by ini file).
     // If it's value is set to VK_PRESENT_MODE_MAX_ENUM_KHR, or is not valid for the current implementation the present mode will be set
     // to VK_PRESENT_MODE_FIFO_KHR, which is mandatory for every swapchain supporting implementation.
 
@@ -281,7 +300,7 @@ void resizeResources( ref App_State app, VkPresentModeKHR request_present_mode =
     // create render pass and clear values
     //
 
-    // clear values, stored in App_State
+    // clear values, stored in App
     app.clear_values
         .set( 0, 1.0f )                      // add depth clear value
         .set( 1, 0.0f, 0.0f, 0.0f, 1.0f );   // add color clear value
@@ -349,7 +368,7 @@ void resizeResources( ref App_State app, VkPresentModeKHR request_present_mode =
 ///////////////////////////////////
 // (re)create draw loop commands //
 ///////////////////////////////////
-void createCommands( ref App_State app ) nothrow {
+void createCommands( ref App app ) nothrow {
 
     // we need to do this only if the gui is not displayed
 //    if( app.draw_gui )
@@ -418,7 +437,7 @@ void createCommands( ref App_State app ) nothrow {
 //////////////////////////////
 // destroy vulkan resources //
 //////////////////////////////
-void destroyResources( ref App_State app ) {
+void destroyResources( ref App app ) {
 
     import erupted;
 
@@ -429,7 +448,7 @@ void destroyResources( ref App_State app ) {
 
     // memory Resources
     app.destroy( app.depth_image );
-    app.destroy( app.xform_ubo_buffer );
+    app.destroy( app.ubo_buffer );
     //app.unmapMemory( app.host_visible_memory ).destroy( app.host_visible_memory );
 
     // render setup
@@ -442,5 +461,7 @@ void destroyResources( ref App_State app ) {
     foreach( ref f; app.submit_fence )       app.destroy( f );
     foreach( ref s; app.acquired_semaphore ) app.destroy( s );
     foreach( ref s; app.rendered_semaphore ) app.destroy( s );
+
+    foreach( ref toy; app.my_toys )          toy.destroy( app );
 }
 

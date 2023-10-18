@@ -7,14 +7,20 @@ copyright           "Copyright (c) 2023 Peter Particle"
 authors             "Peter Particle"
 license             "MIT"
 
+buildOptions        "debugInfoC"
+platform            "windows"
+
 dependency          "bindbc-glfw"       version="~>1.0.0"
 subConfiguration    "bindbc-glfw"       "dynamicBC"
 versions            "GLFW_33"           "BindGLFW_NoGC_Callbacks"
 
-dependency          "erupted"           path    = "../ErupteD"
-dependency          "vdrive"            path    = "../V-Drive"
-dependency          "d_imgui"           path    = "../D_ImGui"
-dependency          "dlsl"              path    = "../DLSL"
+sourcePaths         "source" "../source_libs"
+importPaths         "source" "../source_libs"
+
+// dependency          "erupted"           path    = "../ErupteD"
+// dependency          "vdrive"            path    = "../V-Drive"
+// dependency          "d_imgui"           path    = "../D_ImGui"
+// dependency          "dlsl"              path    = "../DLSL"
 
 libs                "Imm32" "User32"
 

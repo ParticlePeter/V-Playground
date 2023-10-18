@@ -5,11 +5,7 @@ import bindbc.glfw;
 
 import core.stdc.stdio : printf;
 
-import vdrive.util;
-import vdrive.state;
-import vdrive.validator;
-import vdrive.initializer;
-
+import vdrive;
 
 import app;
 
@@ -23,7 +19,7 @@ nothrow @nogc:
 
 
 
-VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysicalDeviceFeatures* required_features = null ) {
+VkResult initVulkan( ref App app, uint32_t win_w, uint32_t win_h ) {
 
     // set vulkan state verbosity
     vdrive.initializer.verbose_init = verbose;
@@ -31,7 +27,7 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
     println();
 
     // Initialize GLFW3 and Vulkan related glfw functions
-    loadGLFW( "glfw3_x64_3.3.6.dll" ); // load the lib found in system path
+    loadGLFW( "glfw3_x64_3.3.8.dll" ); // load the lib found in system path
     loadGLFW_Vulkan;    // load vulkan specific glfw function pointers
     glfwInit();         // initialize glfw
 
@@ -48,20 +44,31 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
     // get some useful info from the instance
     //listExtensions;   // heap allocation
     //listLayers;       // heap allocation
-    //app.listExtensions; // arena sub-allocation
+    //app.listInstanceExtensions; // arena sub-allocation
     //app.listLayers;     // arena sub-allocation
     //"VK_LAYER_KHRONOS_validation".isLayer;
-
+    VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME.isInstanceExtension( true );
 
     // get vulkan extensions which are required by glfw
     uint32_t  extension_count;
     string_z* glfw_required_extensions = glfwGetRequiredInstanceExtensions( & extension_count );
 
     //*
-    auto meta_init = Meta_Init( app );
-    VkResult result = meta_init
+        // App info
+    VkApplicationInfo app_info = {
+        pEngineName         : "V-Playground",
+        engineVersion       : VK_MAKE_API_VERSION( 0, 0, 1, 0 ),
+        pApplicationName    : "V-Drive-App",
+        applicationVersion  : VK_MAKE_API_VERSION( 0, 0, 1, 0 ),
+        apiVersion          : VK_API_VERSION_1_3,
+    };
+
+    auto meta_init = App_Meta_Init( app );
+    //addToysInstanceExtensions( meta_init, app );
+    meta_init
         .validateVulkan( true )
-        .addInstanceExtensions( glfw_required_extensions[ 0 .. extension_count ] )
+        .addInstanceExtension( glfw_required_extensions[ 0 .. extension_count ] )
+        .addToysInstanceExtensions( app )
         .addInstanceLayer( "VK_LAYER_KHRONOS_validation" )
         .setDebugUtilsSeverityFlags( 0
             | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
@@ -73,8 +80,13 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
             | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
             | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
             | VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-        )
-        .initInstance;
+        );
+
+        // foreach( ref toy; app.my_toys )
+        //     if( toy.extInst !is null )
+        //         toy.extInst( meta_init );
+
+    VkResult result = meta_init.initInstance( & app_info );
 
     string_z[] layers = meta_init.instance_layers.data;
     uint32_t layer_count = meta_init.instance_layers.count.to_uint;
@@ -111,7 +123,8 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
         //listExtensions( gpu_extensions,  true );
         //"VK_EXT_debug_marker".isExtension( app, true );
         //gpu.listExtensions;   // heap allocation
-        //app.listExtensions;      // area sub-allocation
+        //app.listInstanceExtensions;
+        //app.listDeviceExtensions;   // area sub-allocation
 
         //printf( "Present supported: %u\n", gpu.presentSupport( app.swapchain.surface ));
         //auto presentation_modes = listPresentModesResult( app );
@@ -124,13 +137,40 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
     // Todo(pp): find a suitable "best fit" gpu
     // - gpu must support the VK_KHR_swapchain extension
     bool presentation_supported = false;
-    foreach( ref gpu; gpus ) {
+    auto gpu_ranking = Block_Array!ubyte( app.scratch, gpus.length );
+
+    foreach( size_t i, ref gpu; gpus ) {
         if( gpu.presentSupport( app.swapchain.surface )) {
             presentation_supported = true;
-            app.gpu = gpu;
-            break;
+            gpu_ranking[ i ] += 100; 
         }
+
+        auto properties = gpu.get_properties;
+        if( properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
+            gpu_ranking[ i ]++;
     }
+
+    // sort gpus using gpu_ranking
+    if( gpus.count > 1 ) {
+        // Programming Pearls 2nd ed. 1999 iSort 
+        uint i, j;
+        for(i = 1; i < gpus.count; ++i ) {
+            auto r = gpu_ranking[i];
+            auto g = gpus[i];
+
+            for(j = i; j > 0 && gpu_ranking[j-1] < r; --j ) {
+                gpu_ranking[j] = gpu_ranking[j-1];
+                gpus[j] = gpus[j-1];
+            }
+
+            gpu_ranking[j] = r;
+            gpus[j] = g;
+        } 
+    }
+
+    app.gpu = gpus[ 0 ]; 
+
+    app.gpu.listProperties( GPU_Info_Flags.properties, app.scratch );
 
     // Presentation capability is required for this example, terminate if not available
     if( !presentation_supported ) {
@@ -141,13 +181,13 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
     }
 
     // if presentation is supported on that gpu the gpu extension VK_KHR_swapchain must be available
-    const( char )*[1] device_extensions = [ VK_KHR_SWAPCHAIN_EXTENSION_NAME ];
+    auto device_extensions = Block_Array!string_z( app.scratch );
+    meta_init
+        .addDeviceExtension( VK_KHR_SWAPCHAIN_EXTENSION_NAME )
+        .addToysDeviceExtensions( app );
 
-
-    // enabling shader clip and cull distance is not required if gl_PerVertex is (re)defined
-    //VkPhysicalDeviceFeatures features;
-    //auto available_features = app.gpu.listFeatures( false );
-
+    // get required features for toys
+    meta_init.addToysFeatures( app );
 
     //auto queue_families = listQueueFamiliesResult( app );
     //listQueueFamilies( queue_families, verbose, app.swapchain.surface );           // last param is optional and only for printing
@@ -168,7 +208,7 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
 
         // initialize the logical device
         // Todo(pp): fix allocations dependent on extensions and layers type
-        app.initDevice( filtered_queues, device_extensions, layers, required_features );
+        app.initDevice( filtered_queues, meta_init.device_extensions.data, layers, & meta_init.features, meta_init.features_ext_chain );
 
         // get device queues
         app.device.vkGetDeviceQueue( filtered_queues[0].family_index, 0, & app.graphics_queue );
@@ -198,7 +238,7 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
         ];
 
         // initialize the logical device
-        app.initDevice( filtered_queues, device_extensions, layers, required_features );
+        app.initDevice( filtered_queues, meta_init.device_extensions.data, layers, & meta_init.features, meta_init.features_ext_chain );
 
         // get device queues
         app.device.vkGetDeviceQueue( filtered_queues[0].family_index, 0, & app.graphics_queue );
@@ -228,7 +268,7 @@ VkResult initVulkan( ref App_State app, uint32_t win_w, uint32_t win_h, VkPhysic
 
 
 
-void destroyVulkan( ref App_State app ) {
+void destroyVulkan( ref App app ) {
 
     app.destroyDevice;
 

@@ -15,7 +15,7 @@ import bindbc.glfw;
 import app;
 import resources;
 
-import toys.all;
+import toys;
 
 import settings : setting;
 
@@ -31,7 +31,7 @@ struct Gui_State {
     nothrow @nogc:
 
     alias                       app this;
-    @setting App_State          app;
+    @setting App                app;
 
     // presentation mode handling
     Static_Array!( char, 60 )   available_present_modes;        // 64 bytes
@@ -55,9 +55,7 @@ struct Gui_State {
     Gui_Draw_Buffer[ app.MAX_FRAMES ]   gui_draw_buffers;
 
     @setting bool               draw_gui = true;
-
-    Static_Array!( string, 4 )  toys_names;
-    int                         toy_name_idx = 0;   // Selected Toy Index
+   
 
 
 
@@ -67,13 +65,6 @@ struct Gui_State {
     // initialize imgui
     //
     void initImgui() {
-
-        // register toys names
-        toys_names.append( toys.cone.name() );
-        toys_names.append( toys.morton.name() );
-        toys_names.append( toys.hex_tess.name() );
-        toys_names.append( toys.triangle.name() );
-
 
         // display the gui
         draw_gui = true;
@@ -106,10 +97,10 @@ struct Gui_State {
         io.KeyMap[ ImGuiKey.Z ]             = GLFW_KEY_Z;
 
         // specify gui font
-        io.Fonts.AddFontFromFileTTF( "fonts/consola.ttf", 14 ); // size_pixels
+        io.Fonts.AddFontFromFileTTF( "../fonts/consola.ttf", 14 ); // size_pixels
 
         // set ImGui function pointer
-//      io.RenderDrawListsFn    = & drawGuiData;    // called of ImGui.Render. Alternatively can be set this to null and call ImGui.GetDrawData() after ImGui.Render() to get the same ImDrawData pointer.
+//      io.RenderDrawListsFn    = & recordGuiCommands;    // called of ImGui.Render. Alternatively can be set this to null and call ImGui.GetDrawData() after ImGui.Render() to get the same ImDrawData pointer.
         io.SetClipboardTextFn   = & setClipboardString;
         io.GetClipboardTextFn   = & getClipboardString;
         io.ClipboardUserData    = window;
@@ -194,10 +185,10 @@ struct Gui_State {
     //
     // initialize vulkan
     //
-    VkResult initVulkan( VkPhysicalDeviceFeatures* required_features = null ) {
+    VkResult initVulkan() {
 
         // first initialize vulkan main handles, exit early if something goes wrong
-        auto vk_result = app.initVulkan( required_features );
+        auto vk_result = app.initVulkan();
         if( vk_result != VK_SUCCESS )
             return vk_result;
 
@@ -259,7 +250,8 @@ struct Gui_State {
         // record next command buffer asynchronous
         if( draw_gui )      // this can't be a function pointer as well
             this.buildGui;  // as we wouldn't know what else has to be drawn (drawFunc or drawFuncPlay etc. )
-
+        
+        recordGuiCommands( ImGui.GetDrawData );
         app.draw;
     }
 
@@ -459,16 +451,21 @@ struct Gui_State {
 
         }
 
-        if( ImGui.CollapsingHeader( "Playground with Toys" )) {
+        // Set Monitor for Fullscreen rendering
+        if( ImGui.DragInt( "Fullscreen Monitor", & app.monitor_fullscreen_idx, 0.1f, 0, app.monitor_count - 1, "%d", ImGuiSliderFlags.AlwaysClamp )) {
+        //    sim_step_size = step_size < 1 ? 1 : step_size;
+        }
+
+        if( ImGui.CollapsingHeader( "Playground with Toys", ImGuiTreeNodeFlags.DefaultOpen )) {
             ImGui.Separator;
             ImGui.PushItemWidth( -1 );
 
-            string combo_label = toys_names[ toy_name_idx ];       // Label to preview before opening the combo (technically it could be anything)(
-            if( ImGui.BeginCombo( "Toys", combo_label )) {
-                for( int i = 0; i < toys_names.count.to_int; ++i ) {
-                    const bool is_selected = ( toy_name_idx == i );
-                    if( ImGui.Selectable( toys_names[ i ], is_selected ))
-                        toy_name_idx = i;
+            //string combo_label = toys[ my_toy_idx ].name;       // Label to preview before opening the combo (technically it could be anything)(
+            if( ImGui.BeginCombo( "Toys", my_toys[ my_toy_idx ].name )) {
+                for( int i = 0; i < my_toys.count.to_int; ++i ) {
+                    const bool is_selected = ( my_toy_idx == i );
+                    if( ImGui.Selectable( my_toys[ i ].name, is_selected ))
+                        my_toy_idx = i;
 
                     // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
                     if( is_selected )
@@ -481,7 +478,12 @@ struct Gui_State {
             ImGui.Separator;
             ImGui.Spacing;
 
+            if( active_toy.widgets !is null )
+                active_toy.widgets( app );
+
         }
+
+
 
         ImGui.End();
 
@@ -510,8 +512,6 @@ struct Gui_State {
 
 
         ImGui.Render;
-
-        drawGuiData( ImGui.GetDrawData );
     }
 
 
@@ -730,12 +730,19 @@ void createDescriptorSet( ref Gui_State gui ) {
     // descriptors will be added, the set constructed and stored in
     // app.descriptor of type Core_Descriptor
 
-    auto meta_descriptor = Meta_Descriptor_T!(9,3,8,4,3,2)( gui )
+    // auto meta_descriptor = Meta_Descriptor_T!(9,3,8,4,3,2)( gui )
+    //     .addImmutableSamplerImageBinding( 1, VK_SHADER_STAGE_FRAGMENT_BIT )
+    //     .addSamplerImage( gui.gui_font_tex.sampler, gui.gui_font_tex.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+
+    // // forward to app createDescriptorSet with the currently being configured meta_descriptor
+    // resources.createDescriptorSet_T( gui, meta_descriptor );
+    Meta_Descriptor meta_descriptor = Meta_Descriptor( gui );
+    meta_descriptor
         .addImmutableSamplerImageBinding( 1, VK_SHADER_STAGE_FRAGMENT_BIT )
         .addSamplerImage( gui.gui_font_tex.sampler, gui.gui_font_tex.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
 
     // forward to app createDescriptorSet with the currently being configured meta_descriptor
-    resources.createDescriptorSet_T( gui, meta_descriptor );
+    resources.createDescriptorSet( gui, meta_descriptor );
 }
 
 
@@ -877,7 +884,7 @@ void destroyResources( ref Gui_State gui ) {
 //
 // main rendering function which draws all data including gui //
 //
-void drawGuiData( ImDrawData* draw_data ) {
+void recordGuiCommands( ImDrawData* draw_data ) {
 
     // get Gui_State pointer from ImGuiIO.UserData
     auto gui = cast( Gui_State* )( & ImGui.GetIO()).UserData;
@@ -897,6 +904,10 @@ void drawGuiData( ImDrawData* draw_data ) {
     VkCommandBufferBeginInfo cmd_buffer_bi = { flags : VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
     cmd_buffer.vkBeginCommandBuffer( & cmd_buffer_bi );
 
+    // record selected Pre Renderpass toy commands
+    if( gui.active_toy.recordPreRP != null )
+        gui.active_toy.recordPreRP( gui.app, cmd_buffer );
+
     // begin the render pass
     cmd_buffer.vkCmdBeginRenderPass( & gui.render_pass_bi, VK_SUBPASS_CONTENTS_INLINE );
 
@@ -904,6 +915,19 @@ void drawGuiData( ImDrawData* draw_data ) {
     cmd_buffer.vkCmdSetViewport( 0, 1, & gui.viewport );
     cmd_buffer.vkCmdSetScissor(  0, 1, & gui.scissors );
 
+    // record selected toy commands
+    gui.my_toys[ gui.my_toy_idx ].record( gui.app, cmd_buffer );
+
+    // exit here if we do not want to draw the gui
+    if ( gui.draw_gui == 0 ) {
+        // end the render pass
+        cmd_buffer.vkCmdEndRenderPass;
+
+        // finish recording
+        cmd_buffer.vkEndCommandBuffer;
+
+        return;
+    }
 
     //
     // create gui index and vertex data buffer as one buffer, align the index buffer on 16 bytes

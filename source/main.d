@@ -1,7 +1,7 @@
 //module main;
 
-import input;
 import app;
+import input;
 import settings;
 
 
@@ -24,7 +24,7 @@ int main() {
         app.initImgui;      // initialize imgui first, we raster additional fonts but currently don't install its glfw callbacks, they should be treated
     } else {
         import resources;
-        App_State app;   // VDrive state struct
+        App app;   // VDrive state struct
     }
 
     //import vdrive.util.info;
@@ -34,40 +34,56 @@ int main() {
         // read settings
         //app.parseSettings( app.scratch );               // ubo pointers are backed by temp memory
 
+        // Register Toys
+        import toys;
+        app.my_toys.append( toys.triangle.GetToy );
+        app.my_toys.append( toys.cone.GetToy );
+        app.my_toys.append( toys.morton.GetToy );
+        app.my_toys.append( toys.hex_tess.GetToy );
+        app.my_toys.append( toys.sdf_heightmap.GetToy );
+        app.my_toys.append( toys.cam_debug.GetToy );
+
+
         // initialize vulkan
-        auto vkResult = app.initVulkan;                 // initialize instance and (physical) device
-        if( vkResult > 0 ) return vkResult;             // exit if initialization failed, VK_SUCCESS = 0
+        auto vkResult = app.initVulkan;         // initialize instance and (physical) device
+        if( vkResult > 0 ) return vkResult;     // exit if initialization failed, VK_SUCCESS = 0
+    }
+
+
+    // ErupteD-V2 test code
+    //import vulkan_windows;
+    //auto hinstance = GetModuleHandle( null );
+    //VkWin32SurfaceCreateInfoKHR win_32_surface_ci;
+    //loadInstanceLevelFunctions( app.instance );
+    //auto result = vkGetPhysicalDeviceWin32PresentationSupportKHR( app.gpu, app.graphics_queue_family_index );
+    //auto amd = DispatchDevice( app.device );
+    //import std.stdio;
+    //writeln( "Present Support: ", result );
+    //return 0;
+    
+    app.createCommandObjects;       // create command pool and sync primitives
+    app.createMemoryObjects;        // create memory objects once used through out program lifetime
+    app.createDescriptorSet;        // create descriptor set
+    app.resizeResources;            // construct swapchain, create depth buffer and frambuffers
+    app.createResources;            // configure swapchain, create renderpass and pipeline state object
+    app.registerCallbacks;          // register glfw callback functions
+    app.initTrackball(5,5,5, 0,2,0);// initialize trackball with window size and default perspective projection data in VDrive State
 
 
 
-        // ErupteD-V2 test code
-        //import vulkan_windows;
-        //auto hinstance = GetModuleHandle( null );
-        //VkWin32SurfaceCreateInfoKHR win_32_surface_ci;
-        //loadInstanceLevelFunctions( app.instance );
-        //auto result = vkGetPhysicalDeviceWin32PresentationSupportKHR( app.gpu, app.graphics_queue_family_index );
-        //auto amd = DispatchDevice( app.device );
-        //import std.stdio;
-        //writeln( "Present Support: ", result );
-        //return 0;
-
-        app.createCommandObjects;       // create command pool and sync primitives
-        app.createMemoryObjects;        // create memory objects once used through out program lifetime
-        app.createDescriptorSet;        // create descriptor set
-        app.resizeResources;            // construct swapchain, create depth buffer and frambuffers
-        app.createResources;            // configure swapchain, create renderpass and pipeline state object
-        app.registerCallbacks;          // register glfw callback functions
-        app.initTrackball;              // initialize trackball with window size and default perspective projection data in VDrive State
-        //*
-        // branch once more dependent on gui usage
-        static if( !USE_GUI ) {
-            app.createCommands;         // create draw loop runtime commands, only used without gui
-        } else {
-            if(!app.draw_gui ) {
-                app.createCommands;
-            }
+    //*
+    // branch once more dependent on gui usage
+    static if( !USE_GUI ) {
+        app.createCommands;         // create draw loop runtime commands, only used without gui
+    } else {
+        if(!app.draw_gui ) {
+            app.createCommands;
         }
     }
+
+
+    
+
     // initial draw
     app.drawInit;
 
@@ -92,7 +108,7 @@ int main() {
     char[32] title;
     uint frame_count;
     import bindbc.glfw;
-    double last_time = glfwGetTime();
+    float last_time = app.last_time = cast(float)glfwGetTime();
     import core.stdc.stdio : sprintf;
 
 
@@ -104,18 +120,22 @@ int main() {
     //*/
         // compute fps
         ++frame_count;
-        double delta_time = glfwGetTime() - last_time;
-        if( delta_time >= 1.0 ) {
-            sprintf( title.ptr, "Vulkan Erupted, FPS: %.2f", frame_count / delta_time );    // frames per second
+        float time = cast(float)glfwGetTime();
+        float time_delta = time - last_time;
+        if( time_delta >= 1.0 ) {
+            sprintf( title.ptr, "Vulkan Erupted, FPS: %.2f", frame_count / time_delta );    // frames per second
             //sprintf( title.ptr, "Vulkan Erupted, FPS: %.2f", 1000.0 / frame_count );      // milli seconds per frame
             glfwSetWindowTitle( app.window, title.ptr );
-            last_time += delta_time;
+            last_time = time;
             frame_count = 0;
         }
 
         // draw
-        app.draw();
-        glfwSwapBuffers( app.window );
+        if( !app.window_minimized ) {
+            app.updateTime( time );
+            app.draw();
+            glfwSwapBuffers( app.window );
+        }
 
         // poll events in remaining frame time
         glfwPollEvents();
@@ -166,3 +186,44 @@ int main() {
     return 0;
 }
 
+
+
+
+
+
+void ISortTest() {
+    import std.random, std.stdio;
+    auto random = Random(unpredictableSeed);
+    uint[16] gpu_ranking;
+
+    printf("\n");
+    foreach(ref v; gpu_ranking) {
+        v = uniform(0, 1028, random);
+        printf("%u, ", v);
+    }
+
+    printf("\n");
+
+
+    // Programming Pearls 2nd ed. 1999 iSort 
+    uint i, j;
+    for(i = 1; i < gpu_ranking.length; ++i ) {
+        auto r = gpu_ranking[i];
+        //auto g = gpus[i];
+
+        for(j = i; j > 0 && gpu_ranking[j-1] < r; --j ) {
+            gpu_ranking[j] = gpu_ranking[j-1];
+            //gpus[j] = gpus[j-1];
+        }
+
+        gpu_ranking[j] = r;
+        //gpus[j] = g;
+    }
+
+    foreach(ref v; gpu_ranking) {
+        printf("%u, ", v);
+    }
+
+    printf("\n\n"); 
+
+}

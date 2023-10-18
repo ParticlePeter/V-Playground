@@ -1,9 +1,8 @@
-
 import bindbc.glfw;
-import dlsl.matrix;
 import erupted;
 import vdrive;
 import input;
+import dlsl;
 
 import settings : setting;
 
@@ -16,10 +15,12 @@ enum verbose = false;
 nothrow @nogc:
 
 
+
+
 //////////////////////////////
 // application state struct //
 //////////////////////////////
-struct App_State {
+struct App {
     nothrow @nogc:
 
     // count of maximum per frame resources, might be less dependent on swapchain image count
@@ -31,6 +32,9 @@ struct App_State {
     VkQueue                     graphics_queue;
     uint32_t                    graphics_queue_family_index; // required for command pool
     GLFWwindow*                 window;
+    bool                        window_minimized = false;
+    int                         monitor_count;
+    int                         monitor_fullscreen_idx = 1;
 
     // trackball and mouse
     TrackballButton             tbb;                        // Trackball manipulator updating View Matrix
@@ -48,10 +52,11 @@ struct App_State {
     alias win_h = windowHeight;
 
     mat4                        projection;                 // Projection Matrix
+    mat4                        projection_inverse;         // Inverse Projection Matrix
+    float                       projection_aspect;          // Projection aspect, will be computed from window dim, when updateProjection is called
     @setting float              projection_fovy =    60;    // Projection Field Of View in Y dimension
     @setting float              projection_near =   0.1;    // Projection near plane distance
     @setting float              projection_far  =  1000;    // Projection  far plane distance
-    float                       projection_aspect;          // Projection aspect, will be computed from window dim, when updateProjection is called
 
     @setting mat3               look_at() @nogc { return tbb.lookingAt; }
     @setting void               look_at( ref mat3 etu ) @nogc { tbb.lookAt( etu[0], etu[1], etu[2] ); }
@@ -64,17 +69,38 @@ struct App_State {
     VkSampleCountFlagBits       sample_count = VK_SAMPLE_COUNT_1_BIT;
 
     // UBO related resources
-    struct XForm_UBO {
-        mat4        wvpm;   // World View Projection Matrix
-        float[3]    eyep = [ 0, 0, 0 ];
-        float       time_step = 0.0;
-    }
+    struct UBO {
+        mat4    wvpm;   // World View Projection Matrix
+        mat4    wvpi;   // World View Projection Inverse Matrix
+        mat4    view;   // View Matrix, to transfrom into view space
+        mat4    camm;   // Camera Matrix, position and orientation of the cam
+        float   aspect;
+        float   fowy = 1.0f;
+        float   near = 0.001f;
+        float   far  = 1000.0f;
+        vec4    mouse = vec4(0.0f);
+        vec2    resolution;
+        float   time  = 0.0f;
+        float   time_delta = 0.0f;
+        float   frame = 0.0f;
+        float   speed = 0.0f;   // accumulated speed_amp * time_delta
 
-    XForm_UBO*  xform_ubo;      // pointer to mapped memory
+        // Ray Marching
+	    int	    max_ray_steps = 256;
+	    float   epsilon = 0.000001f;
+
+        // Heightmap
+        float   hm_scale   = 10.0f; 
+        float   hm_height_factor = 0.5f;
+    }   
+
+    UBO*  ubo;              // pointer to mapped memory
+    float speed_amp = 1.0f; // speed amplifier for accumulation
+    float last_time;
 
     // memory Resources
     alias                       Ubo_Buffer = Core_Buffer_T!( 0, BMC.Memory | BMC.Mem_Range );
-    Ubo_Buffer                  xform_ubo_buffer;
+    Ubo_Buffer                  ubo_buffer;
     Core_Image_Memory_View      depth_image;
     VkDeviceMemory              host_visible_memory;
 
@@ -94,8 +120,32 @@ struct App_State {
     uint32_t                    next_image_index;
 
 
+    // Toys Registry
+    struct Toy {
+        nothrow @nogc:
+        string                                      name;
+        void function(ref App_Meta_Init)            extInstance;
+        void function(ref App_Meta_Init)            extDevice;
+        void function(ref App_Meta_Init)            features;
+        void function(ref App, ref Meta_Descriptor) descriptor;
+        void function(ref App)                      create;
+        void function(ref App, VkCommandBuffer)     record;
+        void function(ref App, VkCommandBuffer)     recordPreRP;
+        void function(ref App)                      widgets;
+        void function(ref App)                      destroy;
+    }
+
+    //Static_Array!(Toy, 4) my_toys;
+    alias toys = my_toys;
+    Dynamic_Array!(Toy) my_toys;
+    int my_toy_idx = 4;
+    ref Toy active_toy() { return my_toys[ my_toy_idx ]; }
+
+
+
     // one descriptor for all purposes
     Core_Descriptor             descriptor;
+    VkPipelineCache             pipeline_cache;
 
 
     // render setup
@@ -110,10 +160,10 @@ struct App_State {
 
 
     import init;
-    VkResult initVulkan( VkPhysicalDeviceFeatures* required_features = null ) {
+    VkResult initVulkan() {
         if( win_w == 0 ) win_w = 1600;
         if( win_h == 0 ) win_h =  900;
-        return init.initVulkan( this, win_w, win_h, required_features ).vkAssert;
+        return init.initVulkan( this, win_w, win_h ).vkAssert;
     }
 
 
@@ -126,18 +176,34 @@ struct App_State {
     // and the swapchain extent converted to aspect
     void updateProjection() {
         import dlsl.projection;
-        projection = vkPerspective( projection_fovy, cast( float )windowWidth / windowHeight, projection_near, projection_far );
+        vec2 res = vec2( win_w, win_h );
+        projection_aspect = res.x / res.y;
+        projection = vkPerspective(projection_fovy, projection_aspect, projection_near, projection_far);
+        projection_inverse = vkPerspectiveInverse(projection_fovy, projection_aspect, projection_near, projection_far);
+        ubo.resolution = res;
+        ubo.aspect = projection_aspect;
+        ubo.fowy = projection_fovy; //tan(dlsl.matrix.deg2rad * projection_fovy) / win_h;
+        ubo.near = projection_near;
+        ubo.far  = projection_far;
     }
 
 
     // multiply projection with trackball (view) matrix and upload to uniform buffer
     void updateWVPM() {
-        xform_ubo.wvpm = projection * tbb.worldTransform;
+        ubo.wvpm = projection * tbb.worldTransform;
+        ubo.wvpi = tbb.viewTransform * projection_inverse;
+        ubo.view = tbb.worldTransform;  // to transfrom into View Space
+        ubo.camm = tbb.viewTransform;   // position and orientation of can in world space
+    //  vk.flushMappedMemoryRange( ubo_buffer.mem_range );    // we're flushing every frame anyway
+    }
 
-        // prcompute cone segment rotation angle and store in wvpm[3][0]
-        //(*wvpm)[3][0] = 2.0f * 3.14159265f / cone_segments;
-
-        vk.flushMappedMemoryRange( xform_ubo_buffer.mem_range );
+    void updateTime( float time ) {
+        ubo.time = time;
+        ubo.time_delta = time - last_time;
+        ubo.frame += 1.0f;
+        ubo.speed += speed_amp * ubo.time_delta;
+        last_time = time; 
+        vk.flushMappedMemoryRange( ubo_buffer.mem_range );
     }
 
 
@@ -152,12 +218,8 @@ struct App_State {
         tbb.windowHeight( windowHeight );
 
         // recreate swapchain and other dependent resources
-        try {
-            //swapchain.create_info.imageExtent  = VkExtent2D( win_w, win_h );  // Set the desired swapchain extent, this might change at swapchain creation
-            import resources : resizeResources;
-            this.resizeResources( present_mode );   // destroy old and recreate window size dependent resources
-
-        } catch( Exception ) {}
+        import resources : resizeResources;
+        this.resizeResources( present_mode );   // destroy old and recreate window size dependent resources
     }
 
 
@@ -170,6 +232,13 @@ struct App_State {
 
     // initial draw to overlap CPU recording and GPU drawing
     void drawInit() {
+
+        // init ubo
+        ubo.max_ray_steps = 512;
+        ubo.epsilon  = 0.01f;
+        ubo.hm_scale = 2.0f; 
+        ubo.hm_height_factor = 0.5f;
+
 
         // check if window was resized and handle the case
         if( window_resized ) {
@@ -260,4 +329,28 @@ struct App_State {
         swapchain.present_queue.vkQueuePresentKHR( & present_info );
     }
     */
+}
+
+
+
+alias App_Meta_Init = Meta_Init;
+ref App_Meta_Init addToysInstanceExtensions( return ref App_Meta_Init meta_init, ref App app ) {
+    foreach( ref toy; app.my_toys )
+        if( toy.extInstance !is null )
+            toy.extInstance( meta_init );
+    return meta_init;
+}
+
+ref App_Meta_Init addToysDeviceExtensions( return ref App_Meta_Init meta_init, ref App app ) {
+    foreach( ref toy; app.my_toys )
+        if( toy.extDevice !is null )
+            toy.extDevice( meta_init );
+    return meta_init;
+}
+
+ref App_Meta_Init addToysFeatures( return ref App_Meta_Init meta_init, ref App app ) {
+    foreach( ref toy; app.my_toys )
+        if( toy.features !is null )
+            toy.features( meta_init );
+    return meta_init;
 }

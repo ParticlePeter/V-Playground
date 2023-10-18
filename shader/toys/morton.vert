@@ -4,9 +4,6 @@ layout( std140, binding = 0 ) uniform uboViewer {
     mat4 WVPM;                                  // World View Projection Matrix
 };
 
-//layout( location = 0 ) in  vec4 ia_position;  // input assembly/attributes, we passed in two vec3
-//layout( location = 1 ) in  vec4 ia_color;     // they are filled automatically with 1 at the end to fit a vec4
-
 layout( location = 0 ) out vec4 vs_color;       // vertex shader output vertex color, will be interpolated and rasterized
 
 out gl_PerVertex {                              // not redifining gl_PerVertex used to create a layer validation error
@@ -15,7 +12,6 @@ out gl_PerVertex {                              // not redifining gl_PerVertex u
 
 #define VI gl_VertexIndex
 
-//#define deg_to_rad 0.0 1745 3292 5199 4329 5769 2369 0768 489‬
 
 vec4[] colors = {
     vec4( 0, 0, 1, 1 ),
