@@ -447,11 +447,14 @@ void buildWidgets( ref App app ) {
             if( ImGui.DragFloat( "Noise Frequency", & noise_frequency, 0.001f, 0, 255 ))
                 update_heightmap = true;
             ImGui.DragInt( "Max Ray Steps", & app.ubo.max_ray_steps, 0.125, 8, 2048 );
-            ImGui.DragFloat( "Epsilon Log", & app.ubo.epsilon, 0.01f, 0.0f, 1.0f, "%.8f", ImGui.ImGuiSliderFlags.Logarithmic );
+            ImGui.DragFloat( "Epsilon Log", & app.ubo.epsilon, 0.01f, 0.0f, 1.0f, "%.4f", ImGui.ImGuiSliderFlags.Logarithmic );
             ImGui.Separator;
             ImGui.DragFloat( "Heightmap Scale", & app.ubo.hm_scale, 0.01f, 0.1f, 100.0f, "%.3f", ImGui.ImGuiSliderFlags.Logarithmic  );
             ImGui.DragFloat( "Heightmap Height Factor", & app.ubo.hm_height_factor, 0.01f, 0.0f, 2.0f );
+            ImGui.DragInt( "Heightmap MipMap Level", & app.ubo.hm_level, 0.125, 0, 10 );
             
+            // debugging and verifying camera functions and matrices
+            /*
             ImGui.Separator;
             import dlsl.trackball;
             ImGui.PushItemWidth(-50);
@@ -476,6 +479,7 @@ void buildWidgets( ref App app ) {
             ImGui.DragFloat4("Row 2", camm_transposed[2], 0.01f, 0.0f, 1.0f);
             ImGui.DragFloat4("Row 3", camm_transposed[3], 0.01f, 0.0f, 1.0f);
             ImGui.PopItemWidth();
+            */
 
             break;
 

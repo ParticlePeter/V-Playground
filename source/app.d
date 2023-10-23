@@ -92,6 +92,7 @@ struct App {
         // Heightmap
         float   hm_scale   = 10.0f; 
         float   hm_height_factor = 0.5f;
+        int     hm_level = 0;
     }   
 
     UBO*  ubo;              // pointer to mapped memory
@@ -234,10 +235,11 @@ struct App {
     void drawInit() {
 
         // init ubo
-        ubo.max_ray_steps = 512;
+        ubo.max_ray_steps = 1024;
         ubo.epsilon  = 0.01f;
         ubo.hm_scale = 2.0f; 
         ubo.hm_height_factor = 0.5f;
+        ubo.hm_level = 0;
 
 
         // check if window was resized and handle the case

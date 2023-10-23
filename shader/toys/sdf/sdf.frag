@@ -24,6 +24,7 @@ layout(std140, binding = 0) uniform ubo {
 	// Heightmap
 	float   HM_Scale; 
 	float   HM_Height_Factor;
+	int     HM_Level;
 };
 
 layout( binding = 2 ) uniform sampler2D noise_tex;
@@ -50,40 +51,58 @@ float sdf_box(vec3 p, vec3 b) {
 	return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0));
 }
 
+// axis aligned bounding box, returns min and max hit 
+// source: https://tavianator.com/2022/ray_box_boundary.html
+bool aabb(vec3 ro, vec3 rd, vec3 b_min, vec3 b_max, inout vec2 e) {
+    vec3 t1 = (b_min - ro) / rd;
+    vec3 t2 = (b_max - ro) / rd;
+    vec3 t_min = min(t1, t2);
+    vec3 t_max = max(t1, t2);
+	e.x = max(max(t_min.x, t_min.y), max(t_min.z, e.x));
+    e.y = min(min(t_max.x, t_max.y), min(t_max.z, e.y));
+    return max(e.x, 0) < e.y;
+}
+
 
 // Hightmap Distance field
 vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
-	vec2 hr = Resolution * 0.5;	// half_res
+	float top = HM_Scale * HM_Height_Factor;
+	float sxy = 0.5 * HM_Scale;
 
-	float top = HM_Height_Factor;
-	vec3  eye = CAMM[3].xyz;
-	//	vec3  wrd = mat3(CAMM) * rd;			// wrd: world space ray direction
-	float x = (eye.y - top) / (rd.y);		// x: factor for rd to reach top plane
-	vec3  p = eye - x * rd;					// p: the ppoint we hit on our plane
+	// build an axis aligned aounding box (AABB) arround the heightmap and test for entry points
+	vec2 bb_near_far = vec2(Near, Far);
+	if (!aabb(ro, rd, -vec3(sxy, 0, sxy), vec3(sxy, top, sxy), bb_near_far)) {
+		fs_color = vec4(gl_FragCoord.xy / Resolution, 0, 1);
+		return vec4(fs_color.rgb, Far);
+	}
+
+	// reaching here we have a AABB hit and can compute the WS hit point
+	vec3 p = ro + bb_near_far.x * rd;
 
 	for(uint step_count = 0; step_count < MaxRaySteps; ++step_count) {
 
 		// if the hitpoint is inside the top heightmap xz bounds we draw it, otherwise the bg.
-		if (any(greaterThan(abs(p.xz), vec2(0.5 * HM_Scale)))) {
+		//if (any(greaterThan(abs(p.xz), vec2(HM_Scale))) || p.y < 0) {
+		if (dot(p - ro, p - ro) > (bb_near_far.y * bb_near_far.y)) {
 			fs_color = vec4(gl_FragCoord.xy / Resolution, 0, 1);
 			return vec4(fs_color.rgb, Far);
 		}
 
 		// UVs are reconstructed using plane placement and ray hit location 
 		vec2 uv = (p.xz + 0.5 * HM_Scale) / HM_Scale;
-		float h = textureLod(noise_tex, uv, 0).x;
+		float h = textureLod(noise_tex, uv, HM_Level).x * top;
 
 		if (p.y <= h) {
 
 			float t = float(step_count) / MaxRaySteps;
 			vec3  s = mix(vec3(0,0,0.5), vec3(1,0,0), t);
-			//fs_color = vec4(s, 1);
+			fs_color = vec4(s, 1);
 			//return length(p - ro);
 			return vec4(s, length(p - ro));
 		}
 
-		float duv = 1.0 / 1024;
+		float duv = HM_Scale / 1024;
 		p += rd * duv;
 	}
 
@@ -106,7 +125,7 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
 	vec3 s = vec3(n);
 	fs_color = vec4(s, 1);
 
-	return vec4(s, length( x * rd ));
+	//return vec4(s, length( x * rd ));
 
 
 
@@ -126,10 +145,7 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
 
 
 	// Main loop
-	uint step_count = 0;
-	while (level >= 0 && step_count < MaxRaySteps) {
-		step_count++;
-
+	for(uint step_count = 0; step_count < MaxRaySteps; ++step_count) {
 		// We get current cell minimum plane using tex2Dlod.
 		// d = tex2Dlod(HeightTexture , float4(p2.xy, 0.0 , level)).w;
 		vec2 uv = (p.xz + 0.5 * HM_Scale) / HM_Scale;
@@ -230,12 +246,12 @@ float distance_field(vec3 p, float hm) {
 	//return op_union(
 	//	sdf_box(p, vec3(1));//,
 	//	sdf_plane(p));
-	float ds = sdf_sphere(p + vec3(0.0, -3.5, 0.0), 1.0);
+	float ds = sdf_sphere(p + vec3(0.0, 0.5 * sin(0.5 * Speed) - 3.5, 0.0), 1.0);
 	float dp = sdf_plane(p);
 	float db = sdf_box(p + vec3(0.0, -1.1, 0.0), vec3(1));
 
-	//return op_union_poly(db, ds, 1.0);
-	return op_union_poly(ds, hm);
+	return op_union_poly(db, ds, 1.0);
+	//return op_union_poly(ds, hm);
 
 	// return op_union_poly(op_union_poly(db, dp, 1.0), ds, 0.0);
 	// return op_union_exp(op_union_exp(db, dp, 4.0), ds, 4.0);
@@ -477,10 +493,10 @@ void main() {
 	genRay(ro, rd);
 
 	//*
-	//sdf_heightmap(ro, rd);
+	sdf_heightmap(ro, rd);
 	/*/
-    main_2(ro, rd);
-	/*/
+    main_2(ro, rd, Far);
+	/*
 
 	// raymarch heightmap, get color and depth
 	vec4 sdf_hm = sdf_heightmap(ro, rd);
