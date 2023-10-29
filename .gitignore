@@ -6,3 +6,5 @@ dub.selections.json
 *.sln
 *.pdb
 *.exe
+*.log
+*.ini
