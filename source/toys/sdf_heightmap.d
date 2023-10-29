@@ -27,6 +27,8 @@ private {
     Heightmap       heightmap_img;
     bool            update_heightmap = true;
 
+    bool            draw_axis_and_grid = false;
+
     VkPhysicalDeviceDescriptorIndexingFeatures indexing_features;
 //  VkPhysicalDeviceVulkan12Features gpu_1_2_faetures;
 
@@ -41,7 +43,7 @@ App.Toy GetToy() {
     toy.extDevice   = & getDeviceExtensions;
     toy.features    = & getFeatures;
     toy.descriptor  = & createDescriptor;
-    toy.create      = & createRaymarchPSO;
+    toy.create      = & createPSOs;
     toy.record      = & recordCommands;
     toy.recordPreRP = & recordHeightmapCommands;
     toy.widgets     = & buildWidgets;
@@ -321,6 +323,8 @@ void recordHeightmapCommands( ref App app, VkCommandBuffer cmd_buffer ) {
 void createPSOs( ref App app ) {
     app.createRaymarchPSO;
     app.createNoisePSOs;
+    import toys.cam_debug;
+    app.createResources;
 }
 
 
@@ -378,9 +382,6 @@ void createRaymarchPSO( ref App app ) {
         .construct                                                                  // construct the Pipleine Layout and Pipleine State Object (PSO)
         .destroyShaderModules
         .reset;                                                                     // shader modules compiled into pipeline, not shared, can be deleted now
-
-    // create noise pso
-    app.createNoisePSOs;
 }
 
 
@@ -414,6 +415,9 @@ void recordCommands( ref App app, VkCommandBuffer cmd_buffer ) {
         0   // first instance
     );
 
+    import toys.cam_debug : AxisAndGrid_recordCommands = recordCommands;
+    if( draw_axis_and_grid )
+        app.AxisAndGrid_recordCommands( cmd_buffer );
 }
 
 
@@ -448,38 +452,34 @@ void buildWidgets( ref App app ) {
                 update_heightmap = true;
             ImGui.DragInt( "Max Ray Steps", & app.ubo.max_ray_steps, 0.125, 8, 2048 );
             ImGui.DragFloat( "Epsilon Log", & app.ubo.epsilon, 0.01f, 0.0f, 1.0f, "%.4f", ImGui.ImGuiSliderFlags.Logarithmic );
+
             ImGui.Separator;
-            ImGui.DragFloat( "Heightmap Scale", & app.ubo.hm_scale, 0.01f, 0.1f, 100.0f, "%.3f", ImGui.ImGuiSliderFlags.Logarithmic  );
-            ImGui.DragFloat( "Heightmap Height Factor", & app.ubo.hm_height_factor, 0.01f, 0.0f, 2.0f );
-            ImGui.DragInt( "Heightmap MipMap Level", & app.ubo.hm_level, 0.125, 0, 10 );
+            ImGui.DragFloat( "HM Scale", & app.ubo.hm_scale, 0.01f, 0.1f, 100.0f, "%.3f" );
+            ImGui.DragFloat( "HM Height Factor", & app.ubo.hm_height_factor, 0.01f, 0.0f, 2.0f );
+            ImGui.DragInt( "HM MipMap Level", & app.ubo.hm_level, 0.125, 0, 10 );
+            ImGui.DragInt( "HM Max Level", & app.ubo.hm_max_level, 0.125, 0, 10 );
+
+            // reflect values for grid and axis
+            import toys.cam_debug : setGridScaleAndHeightFactor, setGridCellCountPerAxis;
+            setGridScaleAndHeightFactor( app.ubo.hm_scale, app.ubo.hm_height_factor );
+            setGridCellCountPerAxis( 1 << ( app.ubo.hm_max_level - app.ubo.hm_level ));
             
-            // debugging and verifying camera functions and matrices
-            /*
             ImGui.Separator;
-            import dlsl.trackball;
-            ImGui.PushItemWidth(-50);
-            ImGui.Text( "Debug Camera Looking At" );
-            auto eye_trg_up = app.tbb.lookingAt();
-            void updateLookAt( uint lookAtIndex, string name ) {
-                if( ImGui.DragFloat3( name, eye_trg_up[lookAtIndex], 0.01f, -20.0f, 20.0f )) {
-                    app.tbb.lookAt( eye_trg_up[0], eye_trg_up[1], eye_trg_up[2] );
-                    app.updateWVPM;
-                }
+            if( ImGui.CollapsingHeader( "Debug Ray MipMap Intersection" ))
+                app.debugQDM;
+
+            ImGui.Separator;
+            import toys.cam_debug;
+            if( ImGui.CollapsingHeader( "Axis and Grid Overlay" )) {
+                draw_axis_and_grid = true;
+                app.AxisAndGrid;
+            } else {
+                draw_axis_and_grid = false;
             }
-            updateLookAt( 0, "Eye" );
-            updateLookAt( 1, "Target" );
-            updateLookAt( 2, "Up" );
-            
-            ImGui.Separator;
-            import dlsl.matrix;
-            ImGui.Text( "Debug Camera (XForm) Matrix" );
-            auto camm_transposed = app.ubo.camm.transpose;
-            ImGui.DragFloat4("Row 0", camm_transposed[0], 0.01f, 0.0f, 1.0f);
-            ImGui.DragFloat4("Row 1", camm_transposed[1], 0.01f, 0.0f, 1.0f);
-            ImGui.DragFloat4("Row 2", camm_transposed[2], 0.01f, 0.0f, 1.0f);
-            ImGui.DragFloat4("Row 3", camm_transposed[3], 0.01f, 0.0f, 1.0f);
-            ImGui.PopItemWidth();
-            */
+
+            if( ImGui.CollapsingHeader( "Debug Camera" ))
+                app.debugCamera;
+
 
             break;
 
@@ -505,3 +505,124 @@ void destroyResources( ref App app ) {
 
     app.destroy( heightmap_img );
 }
+
+
+// debug and verify camera functions and matrices
+void debugQDM(ref App app) {
+    import ImGui = d_imgui;
+    import dlsl;
+    ImGui.PushItemWidth(-50);
+
+    ImGui.Text("Ray Origin and Direction");
+    auto camm = app.tbb.viewTransform;
+    vec3 ro = camm[3][ 0 .. 3];
+    vec3 rd = camm[2][ 0 .. 3];
+    ImGui.DragFloat3("ro", ro, 0.01f, -20.0f, 20.0f);
+    ImGui.DragFloat3("rd", rd, 0.01f, -1.0f, 1.0f);
+
+    ImGui.Separator;
+    ImGui.Text("Bounding Box (AABB)");
+
+    // ubo data
+	float	Aspect              = app.ubo.aspect;
+	float 	FOV                 = app.ubo.fowy;	// vertical field (angle) of view of the perspective projection
+    float   Near                = app.ubo.near;
+    float   Far                 = app.ubo.far;
+	vec4	Mouse               = app.ubo.mouse;	// xy framebuffer coord when LMB pressed, zw when clicked
+	vec2	Resolution          = app.ubo.resolution;
+	float	Time                = app.ubo.time;
+	float	Time_Delta          = app.ubo.time_delta;
+	uint	Frame               = app.ubo.frame;
+	float	Speed               = app.ubo.speed;
+
+	// Ray Marching
+	uint	MaxRaySteps         = app.ubo.max_ray_steps;
+	float	Epsilon             = app.ubo.epsilon;
+
+	// Heightmap
+	float   HM_Scale            = app.ubo.hm_scale; 
+	float   HM_Height_Factor    = app.ubo.hm_height_factor;
+	int    	HM_Level            = app.ubo.hm_level;
+	int		HM_Max_Level        = app.ubo.hm_max_level;
+
+
+
+	float top = HM_Scale * HM_Height_Factor;
+	float sxy = 0.5 * HM_Scale;		// side xy
+	float hps = sxy / Resolution.x;	// half pixel size
+	float bxy = sxy;// - hps;
+
+    // axis aligned bounding box, returns min and max hit 
+    // source: https://tavianator.com/2022/ray_box_boundary.html
+    bool aabb(vec3 ro, vec3 rd, vec3 b_min, vec3 b_max, ref vec2 e1, ref vec2 e2) {
+        vec3 rd_inv = 1.0f / rd;
+        vec3 t1 = (b_min - ro) * rd_inv;
+        vec3 t2 = (b_max - ro) * rd_inv;
+        vec3 t_min = min(t1, t2);
+        vec3 t_max = max(t1, t2);
+        e1.x = max(max(t_min.x, t_min.y), max(t_min.z, e1.x));
+        e1.y = min(min(t_max.x, t_max.y), min(t_max.z, e1.y));
+        //return max(e.x, 0) < e.y;
+        //return e.x < e.y;
+
+        // original code
+        float tmin = Near, tmax = Far;
+        float tmi2 = Near, tma2 = Far;
+
+        for (int d = 0; d < 3; ++d) {
+            float s1 = t1[d];
+            float s2 = t2[d];
+
+            tmin = max(tmin, min(s1, s2));
+            tmax = min(tmax, max(s1, s2));
+
+            tmi2 = max(tmi2, t_min[d]);
+            tma2 = min(tma2, t_max[d]);
+        }
+
+        e2 = vec2(tmin, tmax);
+
+    //  return t_min < t_max;
+        return tmin < tmax;
+    }
+
+    vec2 uv_to_world(vec2 UV) { return (UV - 0.5) * HM_Scale; }
+    vec2 world_to_uv(vec2 xz) { return (xz + 0.5 * HM_Scale) / HM_Scale; }
+//  vec4 world_to_uv(vec4 xz) { return (xz + 0.5 * HM_Scale) / HM_Scale; }
+
+
+	// build an axis aligned aounding box (AABB) arround the heightmap and test for entry points
+	// the AABB does not bind the whole heightmap, but rather minus half a pixel on each side
+    vec3 b_min = -vec3(bxy,   0, bxy);
+    vec3 b_max =  vec3(bxy, top, bxy);
+    ImGui.DragFloat3("b_min", b_min, 0.01f, -24.0f, 24.0f);
+    ImGui.DragFloat3("b_max", b_max, 0.01f, -24.0f, 24.0f);
+
+    ImGui.Separator;
+    vec3 p;
+    vec2 uv;
+	vec2 bb_near_far = vec2(Near, Far);
+    vec2 bb_near_far_orig = vec2(Near, Far);
+    ImGui.Text("Bounding Box: "); ImGui.SameLine;
+	if (!aabb(ro, rd, -vec3(bxy, 0, bxy), vec3(bxy, top, bxy), bb_near_far, bb_near_far_orig)) {
+        ImGui.TextColored(ImGui.ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Miss");
+        p  = vec3(0.0f);
+        uv = vec2(0.0f);
+	} else {
+        ImGui.TextColored(ImGui.ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Hit");
+        p = ro + bb_near_far.x * rd;
+        uv = world_to_uv(p.xz);
+    }
+
+    ImGui.DragFloat2("nf", bb_near_far, 0.01f, -20.0f, 20.0f);
+//  ImGui.DragFloat2("nf orig", bb_near_far_orig, 0.01f, -20.0f, 20.0f);
+
+    ImGui.DragFloat3("hp", p,  0.01f, -20.0f, 20.0f);
+    ImGui.DragFloat2("uv", uv, 0.01f,   0.0f,  1.0f);
+
+    int lod_res = 1 << (HM_Max_Level - HM_Level);
+    ivec2 NodeIdx = clamp(ivec2(uv * lod_res), ivec2(0), ivec2(lod_res - 1));
+    ImGui.DragInt2("idx", NodeIdx, 1.0f, 0,  1024);
+
+}
+
