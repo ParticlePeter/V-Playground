@@ -20,5 +20,5 @@ void main() {
     // clipping takes care that only the interior quad spanned from (-1, -1) to (1, 1) is visible
     // we raster these coordinates and send them to the fragment stage 
     vs_ndc_xy = 4 * vec2(VI >> 1, VI & 1) - 1;
-    gl_Position = vec4(vs_ndc_xy, 0.0, 1.0);  // for raymarch.frag
+    gl_Position = vec4(vs_ndc_xy, 1.0, 1.0);  // for raymarch.frag
 }
