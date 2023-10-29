@@ -82,7 +82,7 @@ struct App {
         vec2    resolution;
         float   time  = 0.0f;
         float   time_delta = 0.0f;
-        float   frame = 0.0f;
+        uint    frame = 0;
         float   speed = 0.0f;   // accumulated speed_amp * time_delta
 
         // Ray Marching
@@ -93,11 +93,21 @@ struct App {
         float   hm_scale   = 10.0f; 
         float   hm_height_factor = 0.5f;
         int     hm_level = 0;
+        int     hm_max_level = 0;
     }   
 
     UBO*  ubo;              // pointer to mapped memory
     float speed_amp = 1.0f; // speed amplifier for accumulation
     float last_time;
+
+    void initUBO() {
+        ubo.max_ray_steps = 1024;
+        ubo.epsilon  = 0.01f;
+        ubo.hm_scale = 2.0f; 
+        ubo.hm_height_factor = 0.5f;
+        ubo.hm_level = 0;
+        ubo.hm_max_level = 10;
+    }
 
     // memory Resources
     alias                       Ubo_Buffer = Core_Buffer_T!( 0, BMC.Memory | BMC.Mem_Range );
@@ -201,7 +211,7 @@ struct App {
     void updateTime( float time ) {
         ubo.time = time;
         ubo.time_delta = time - last_time;
-        ubo.frame += 1.0f;
+        ++ubo.frame;
         ubo.speed += speed_amp * ubo.time_delta;
         last_time = time; 
         vk.flushMappedMemoryRange( ubo_buffer.mem_range );
@@ -235,12 +245,7 @@ struct App {
     void drawInit() {
 
         // init ubo
-        ubo.max_ray_steps = 1024;
-        ubo.epsilon  = 0.01f;
-        ubo.hm_scale = 2.0f; 
-        ubo.hm_height_factor = 0.5f;
-        ubo.hm_level = 0;
-
+        initUBO;
 
         // check if window was resized and handle the case
         if( window_resized ) {
