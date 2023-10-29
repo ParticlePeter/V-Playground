@@ -9,12 +9,24 @@ import erupted;
 nothrow @nogc:
 
 private {
-    Core_Pipeline       grid_pso;
-    Core_Pipeline       axis_pso;
-    int                 grid_cells_per_axis = 12;
-    int                 subdivis_per_axis = 16;
-    float               axis_segment_angle = TAU / 8;
-    immutable float     TAU = 6.283185307179586476925286766559;
+    struct Grid_PC {
+        float[3]    center = [ 0.0f, 0.0f, 0.0f ];
+        float       scale  = 2.0f;
+        float[4]    color  = [ 0.5, 0.5, 0.5, 1.0 ];
+        int         cells_per_axis = 12;
+        float       crosshair_scale = 0.0f;
+        float       crosshair_segment_angle = TAU / 16;
+    }
+
+    Core_Pipeline   grid_pso;
+    Core_Pipeline   axis_pso;
+    float[4]        center_and_scale = [ 0.0f, 0.0f, 0.0f, 1.0f ];
+    int             cells_per_axis = 12;
+    Grid_PC         grid;
+    int             crosshair_segment_count = 16;
+    int             axis_subdivs = 16;
+    float           axis_segment_angle = TAU / 8;
+    immutable float TAU = 6.283185307179586476925286766559;
 }
 
 
@@ -31,8 +43,8 @@ App.Toy GetToy() {
 
 
 // create shader input assembly buffer and PSO
-void createResources( ref App app )
-{
+void createResources( ref App app ) {
+
     ////////////////////////////////////////
     // create grid_pso state object (PSO) //
     ////////////////////////////////////////
@@ -64,7 +76,7 @@ void createResources( ref App app )
         .addDynamicState( VK_DYNAMIC_STATE_VIEWPORT )                               // add dynamic states viewport
         .addDynamicState( VK_DYNAMIC_STATE_SCISSOR )                                // add dynamic states scissor
         .addDescriptorSetLayout( app.descriptor.descriptor_set_layout )             // describe grid_pso layout
-        .addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 0, 4 )                   // specify push constant range
+        .addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 0, grid.sizeof )         // specify push constant range
         .renderPass( app.render_pass_bi.renderPass )                                // describe COMPATIBLE render pass
         .construct                                                                  // construct the Pipleine Layout and Pipleine State Object (PSO)
         .destroyShaderModules                                                       // shader modules compiled into grid_pso, not shared, can be deleted now
@@ -100,23 +112,39 @@ void recordCommands( ref App app, VkCommandBuffer cmd_buffer ) {
 
     // simple draw command, non indexed
     cmd_buffer.vkCmdDraw(
-        2 * subdivis_per_axis + 2,      // vertex count
-        12,                             // instance count
-        0,                              // first vertex
-        0                               // first instance
+        2 * axis_subdivs + 2,      // vertex count
+        12,                        // instance count
+        0,                         // first vertex
+        0                          // first instance
     );
 
     // bind graphics grid_pso
     cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, grid_pso.pipeline );
-    cmd_buffer.vkCmdPushConstants( grid_pso.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, grid_cells_per_axis.sizeof, & grid_cells_per_axis );
+    cmd_buffer.vkCmdPushConstants( grid_pso.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, grid.sizeof, & grid );
+
+    // draw the croshair circle if its scale is greater 0.0f
+    if( grid.crosshair_scale > 0.0f ) {
+        // simple draw command, non indexed
+        cmd_buffer.vkCmdDraw(
+            2 * crosshair_segment_count,   // vertex count
+            1,                                  // instance count
+            0,                                  // first vertex
+            0                                   // first instance
+        );
+
+        float zero = 0.0f;  // set push constant crosshair_scale to 0.0f, so that grid can be drawn
+        cmd_buffer.vkCmdPushConstants( grid_pso.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 
+            grid.crosshair_scale.offsetof, zero.sizeof, & zero );
+    }
 
     // simple draw command, non indexed
     cmd_buffer.vkCmdDraw(
-        2 * grid_cells_per_axis + 2,    // vertex count
+        2 * grid.cells_per_axis + 2,    // vertex count
         2,                              // instance count
         0,                              // first vertex
         0                               // first instance
     );
+
 
 }
 
@@ -131,14 +159,38 @@ void destroyResources( ref App app ) {
 // Build Gui Widgets
 void buildWidgets( ref App app ) {
     import ImGui = d_imgui;            
-    ImGui.DragInt( "Grid Cells Per Axis", & grid_cells_per_axis, 2.0f, 1, 21 );
-    if( ImGui.DragInt( "Subdivisions Per Axis", & subdivis_per_axis, 1.0f, 3, 24 ))
-        axis_segment_angle = TAU / subdivis_per_axis;
-
+    app.AxisAndGrid;
     ImGui.Separator;
+    app.debugCamera;
+}
+
+void setGridScaleAndHeightFactor( float s, float h ) { grid.scale = s; grid.center[1] = s * h; }
+void setGridCellCountPerAxis( int n ) { grid.cells_per_axis = n; }
+
+// draw axis and xz-grid (y-up world)
+void AxisAndGrid( ref App app ) {
+    import ImGui = d_imgui;
+    ImGui.DragFloat3( "Grid Center", grid.center, 0.01f, -20.0f, 20.0f );
+    ImGui.DragFloat( "Grid Scale", & grid.scale, 0.01f, -20.0f, 20.0f );            
+    ImGui.DragInt( "Grid Cells Per Axis", & grid.cells_per_axis, 1.0f, 1, 21 );
+    ImGui.ColorEdit4( "Grid Color", grid.color, ImGui.ImGuiColorEditFlags.DisplayHSV );// | misc_flags );
+    
+    ImGui.Separator;
+    ImGui.DragFloat( "Crosshair Scale", & grid.crosshair_scale, 0.001f, 0.0f, 1.0f );
+    if( ImGui.DragInt( "Crosshair Segment Count ", & crosshair_segment_count, 1.0f, 1, 32 ))
+        grid.crosshair_segment_angle = TAU / crosshair_segment_count;
+    
+    ImGui.Separator;
+    if( ImGui.DragInt( "Axis Subdivisions", & axis_subdivs, 1.0f, 3, 24 ))
+        axis_segment_angle = TAU / axis_subdivs;
+}
+
+
+// debug and verify camera functions and matrices
+void debugCamera( ref App app ) {
+    import ImGui = d_imgui;
     import dlsl.trackball;
     ImGui.PushItemWidth(-50);
-
     ImGui.Text( "Debug Camera Looking At" );
     auto eye_trg_up = app.tbb.lookingAt();
     void updateLookAt( uint lookAtIndex, string name ) {
@@ -150,7 +202,7 @@ void buildWidgets( ref App app ) {
     updateLookAt( 0, "Eye" );
     updateLookAt( 1, "Target" );
     updateLookAt( 2, "Up" );
-
+    
     ImGui.Separator;
     import dlsl.matrix;
     ImGui.Text( "Debug Camera (XForm) Matrix" );

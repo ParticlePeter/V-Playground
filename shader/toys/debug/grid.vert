@@ -1,13 +1,22 @@
 #version 450
 
 // Uniform Buffer
-layout( std140, binding = 0 ) uniform uboViewer {
-    mat4 WVPM;                                  // World View Projection Matrix
+layout(std140, binding = 0) uniform ubo {
+    mat4	WVPM;	// World View Projection Matrix
+	mat4	WVPI; 	// World View Projection Inverse Matrix
+	mat4	VIEW;  	// to transfrom into View Space	(inverse of CAMM)
+    mat4	CAMM; 	// Camera Position and Rotation in World Space
+	float	Aspect;
 };
 
 // Push Constants
 layout( push_constant ) uniform Push_Constant {
-    uint Cells_Per_Axis;
+    vec3  Grid_Center;
+    float Grid_Scale;
+    vec4  Grid_Color;
+    uint  Cells_Per_Axis;
+    float Crosshair_Scale;
+    float Crosshair_Segment_Angle;
 };
 
 // Vertex Shader Output
@@ -23,12 +32,27 @@ out gl_PerVertex {                              // not redifining gl_PerVertex u
 
 void main() {
 
-    vec4 pos = vec4(0,0,0,1);
-    pos.x = ((VI / 2) - 0.5  * Cells_Per_Axis);
-    pos.z = ((VI % 2) - 0.5) * Cells_Per_Axis;
-    if (II > 0) pos.zx = pos.xz;
-    vs_color = vec4(0.5, 0.5, 0.5, 1.0);
-    gl_Position = WVPM * pos;    
+    if (Crosshair_Scale > 0.0f) {
+
+        int vi = (VI + 1) >> 1; // we use lines, vi: 0, 1, 1, 2, 2, 3, 3, ...
+        gl_Position = vec4(0, 0.5 * Crosshair_Scale, 0, 1);
+        float cos_angle = cos( vi * Crosshair_Segment_Angle );
+        float sin_angle = sin( vi * Crosshair_Segment_Angle );
+        mat2 ROT = mat2( cos_angle, sin_angle, - sin_angle, cos_angle );
+        vs_color = vec4(1);
+        gl_Position.xy = ROT * gl_Position.xy;
+        gl_Position.y *= Aspect;
+
+    } else { // Grid Drawing
+
+        vec4 pos = vec4(Grid_Center, 1);
+        pos.x += Grid_Scale * (((VI / 2) - 0.5  * Cells_Per_Axis)) / Cells_Per_Axis;
+        pos.z += Grid_Scale * (((VI % 2) - 0.5) * Cells_Per_Axis)  / Cells_Per_Axis;
+        if (II > 0) pos.zx = pos.xz;
+        vs_color = Grid_Color; //vec4(0.5, 0.5, 0.5, 1.0);
+        gl_Position = WVPM * pos;
+
+    }   
 }
 
 
