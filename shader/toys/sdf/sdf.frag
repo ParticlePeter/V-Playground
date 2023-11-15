@@ -62,7 +62,7 @@ bool aabb(vec3 ro, vec3 rd, vec3 b_min, vec3 b_max, inout vec2 e) {
     vec3 t_max = max(t1, t2);
 	e.x = max(max(t_min.x, t_min.y), max(t_min.z, e.x));
     e.y = min(min(t_max.x, t_max.y), min(t_max.z, e.y));
-    return max(e.x, 0) < e.y;
+    return e.x < e.y;	//max(e.x, 0) < e.y;
 }
 
 
@@ -78,22 +78,33 @@ vec4 far_plane() {
 // Hightmap Distance field
 vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
-	float top = HM_Scale * HM_Height_Factor;
-	float sxy = 0.5 * HM_Scale;		// side xy
-	float hps = sxy / Resolution.x;	// half pixel size
-	float bxy = sxy - hps;			// reduce marching box with half a pixel on each side, to start on pixel center
+	float top = HM_Height_Factor;	//HM_Scale * HM_Height_Factor;
+	// float sxy = 0.5 * HM_Scale;		// side xy
+	// float hps = sxy / Resolution.x;	// half pixel size
+	// float bxy = sxy - hps;			// reduce marching box with half a pixel on each side, to start on pixel center
 
 	// build an axis aligned aounding box (AABB) arround the heightmap and test for entry points
 	// the AABB does not bind the whole heightmap, but rather minus half a pixel on each side
 	vec2 bb_near_far = vec2(Near, Far);
-	if (!aabb(ro, rd, -vec3(sxy, 0, sxy), vec3(sxy, 2 * top, sxy), bb_near_far)) {
-		fs_color = vec4(gl_FragCoord.xy / Resolution, 0, 1);
-		return vec4(fs_color.rgb, Far);
+	// if (!aabb(ro, rd, -vec3(sxy, 0, sxy), vec3(sxy, 2 * top, sxy), bb_near_far))
+	if (!aabb(ro, rd, vec3(0), vec3(1, 1.1 * top, 1), bb_near_far)) {
+		return far_plane();
+		// fs_color = vec4(gl_FragCoord.xy / Resolution, 0, 1);
+		// return vec4(fs_color.rgb, Far);
 	}
+
 
 	// reaching here we have a AABB hit and can compute the WS hit point
 	vec3 p = ro + bb_near_far.x * rd;
-	vec2 uv = world_to_uv(p.xz);
+	//vec2 uv = world_to_uv(p.xz);
+
+	if (p.y < top) {
+		fs_color = vec4(p, 1);
+		return vec4(fs_color.rgb, bb_near_far.x);
+	}
+
+	return far_plane();
+	//return vec4(fs_color.rgb, distance(ro, p));
 
 	/*
 	// brute force raymarching using pixel width as step size
@@ -108,7 +119,7 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
 
 		// UVs are reconstructed using plane placement and ray hit location 
 		vec2 uv = (p.xz + 0.5 * HM_Scale) / HM_Scale;
-		float h = textureLod(noise_tex, uv, HM_Level).x * top;
+		float h = top * textureLod(noise_tex, uv, HM_Level).x;
 
 		if (p.y <= h) {
 
@@ -131,40 +142,42 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
 	int level = HM_Max_Level;
 	//int lod_res = int(pow(2.0, level));	// MipMap resolution in x or y
 	//const float HalfTexel = 1.0 / lod_res / 2.0;
-	float d;
+	float h;
 	vec3 p2 = p;
 
 	// We calculate ray movement vector in inter-cell numbers.
 	ivec2 DirSign = ivec2(sign(rd.xy));
 
 	// Main loop
-	for(uint step_count = 0; step_count < MaxRaySteps; ++step_count) {
-
+	uint step_count = 0;
+	while(level >= 0 && step_count < MaxRaySteps) {
+	//for(uint step_count = 0; step_count < MaxRaySteps; ++step_count) {
+		++step_count;
 		// We get current cell minimum plane using tex2Dlod.
-		// d = tex2Dlod(HeightTexture , float4(p2.xy, 0.0 , level)).w;
-		vec2 uv = world_to_uv(p2.xz);
-		// d = textureLod(noise_tex, uv, level).r;
-		d = top * textureLod(noise_tex, uv, level).r;
-
-		if (distance(p, p2) > bb_near_far.y) {
-			fs_color = vec4(gl_FragCoord.xy / Resolution, 0, 1);
-			return vec4(fs_color.rgb, Far);
-		}
+		// h = tex2Dlod(HeightTexture , float4(p2.xy, 0.0 , level)).w;
+		vec2 uv = p2.xz;	//world_to_uv(p2.xz);
+		// h = textureLod(noise_tex, uv, level).r;
+		h = top * textureLod(noise_tex, uv, level).r;
+		// h = top - top * textureLod(noise_tex, uv, level).r;
 
 		//*
 		// If we are not blocked by the cell we move the ray.
-		// if (d > p2.z) {
-		if (d < p2.y) {
+		// if (h > p2.z) {
+		// if (h < p2.y) {
+		if (h < p2.y) {
+			fs_color = vec4(1,0,0,1);
+
 			// We calculate predictive new ray position.
-			// vec3 tmpP2 = p2 + rd * d;
-			vec3 tmpP2 = p2 + rd * (p2.y - d);
+			// vec3 tmpP2 = p2 + rd * h;
+			vec3 tmpP2 = p2 - rd / rd.y * (p2.y - h);
 
 			// We compute current and predictive position.
 			// Calculations are performed in cell integer numbers.
 			int lod_res = int(pow(2, (HM_Max_Level - level)));
 			// ivec4 texel_idx = ivec4(p2.xy, tmpP2.xy) * lod_res;
 			// ivec4 texel_idx = ivec4((vec4(p2.xz, tmpP2.xz) + 0.5 * HM_Scale) / HM_Scale) * lod_res;
-			ivec4 texel_idx = ivec4(vec4(uv, world_to_uv(tmpP2.xz)) * lod_res); 
+			// ivec4 texel_idx = ivec4(vec4(uv, world_to_uv(tmpP2.xz)) * lod_res);
+			ivec4 texel_idx = ivec4(vec4(p2.xz, tmpP2.xz) * lod_res);
 
 			// We test if both positions are still in the same cell.
 			// If not, we have to move the ray to nearest cell boundary.
@@ -172,28 +185,34 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
 				// We compute the distance to current cell boundary.
 				// We perform the calculations in continuous space.
 				vec2 a = (p2.xz - p.xz);
-			    // vec2 p3 = vec2(texel_idx.xy + DirSign) / lod_res;
-				vec2 p3 = (vec2(texel_idx.xy + DirSign) / lod_res) * HM_Scale - sxy;
+			    vec2 p3 = vec2(texel_idx.xy + DirSign) / lod_res;
+				// vec2 p3 = (vec2(texel_idx.xy + DirSign) / lod_res) * HM_Scale - sxy;
 				vec2 b = (p3.xy - p.xz);
 
 				// We are choosing the nearest cell
 				// by choosing smaller distance.
 				// vec2 dNC = abs(p2.z * b / a);
 				vec2 dNC = abs(p2.y * b / a);
-				d = min(d, min(dNC.x, dNC.y));
+				h = min(h, min(dNC.x, dNC.y));
 
 				// During cell crossing we ascend in hierarchy.
 				level = level + 2;//min(HM_Max_Level, level + 2);
 
 				// Predictive refinement
-				// tmpP2 = p + rd * d;
-				tmpP2 = p + rd * (p.y - d);
+				// tmpP2 = p + rd * h;
+				tmpP2 = p + rd / rd.y * (p.y - h);
 			}
 
 			// Final ray movement
 			p2 = tmpP2;
+
 		}
 		//*/
+
+		//if (distance(p, p2) > bb_near_far.y) {
+		if (any(lessThanEqual(p2.xz, vec2(0))) || any(greaterThan(p2.xz, vec2(1)))) {
+			return far_plane();
+		}
 
 		// Default descent in hierarchy
 		// nullified by ascend in case of cell crossing
