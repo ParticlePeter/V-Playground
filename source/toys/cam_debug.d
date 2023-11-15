@@ -18,6 +18,11 @@ private {
         float       crosshair_segment_angle = TAU / 16;
     }
 
+    struct Axis_PC {
+        float       segment_angle = TAU / 8;
+        float       radius = 0.05f;
+    }
+
     Core_Pipeline   grid_pso;
     Core_Pipeline   axis_pso;
     float[4]        center_and_scale = [ 0.0f, 0.0f, 0.0f, 1.0f ];
@@ -25,7 +30,7 @@ private {
     Grid_PC         grid;
     int             crosshair_segment_count = 16;
     int             axis_subdivs = 16;
-    float           axis_segment_angle = TAU / 8;
+    Axis_PC         axis;
     immutable float TAU = 6.283185307179586476925286766559;
 }
 
@@ -108,7 +113,7 @@ void recordCommands( ref App app, VkCommandBuffer cmd_buffer ) {
 
     // bind graphics axis_pso
     cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, axis_pso.pipeline );
-    cmd_buffer.vkCmdPushConstants( axis_pso.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, axis_segment_angle.sizeof, & axis_segment_angle );
+    cmd_buffer.vkCmdPushConstants( axis_pso.pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, axis.sizeof, & axis );
 
     // simple draw command, non indexed
     cmd_buffer.vkCmdDraw(
@@ -164,25 +169,33 @@ void buildWidgets( ref App app ) {
     app.debugCamera;
 }
 
-void setGridScaleAndHeightFactor( float s, float h ) { grid.scale = s; grid.center[1] = s * h; }
 void setGridCellCountPerAxis( int n ) { grid.cells_per_axis = n; }
+void setGridScaleAndHeightFactor( float min_xz, float max_xz, float h ) {
+    float c = 0.5f * (min_xz + max_xz);
+    grid.scale = max_xz - min_xz;
+    grid.center[0] = grid.center[2] = c;
+    grid.center[1] = h;
+}
+
 
 // draw axis and xz-grid (y-up world)
 void AxisAndGrid( ref App app ) {
     import ImGui = d_imgui;
-    ImGui.DragFloat3( "Grid Center", grid.center, 0.01f, -20.0f, 20.0f );
-    ImGui.DragFloat( "Grid Scale", & grid.scale, 0.01f, -20.0f, 20.0f );            
-    ImGui.DragInt( "Grid Cells Per Axis", & grid.cells_per_axis, 1.0f, 1, 21 );
-    ImGui.ColorEdit4( "Grid Color", grid.color, ImGui.ImGuiColorEditFlags.DisplayHSV );// | misc_flags );
+    ImGui.DragFloat3( "#Center", grid.center, 0.01f, -20.0f, 20.0f );
+    ImGui.DragFloat( "#Scale", & grid.scale, 0.01f, -20.0f, 20.0f );            
+    ImGui.DragInt( "#CellsPerAxis", & grid.cells_per_axis, 1.0f, 1, 21 );
+    ImGui.ColorEdit4( "#Color", grid.color, ImGui.ImGuiColorEditFlags.DisplayHSV );// | misc_flags );
     
     ImGui.Separator;
-    ImGui.DragFloat( "Crosshair Scale", & grid.crosshair_scale, 0.001f, 0.0f, 1.0f );
-    if( ImGui.DragInt( "Crosshair Segment Count ", & crosshair_segment_count, 1.0f, 1, 32 ))
+    ImGui.DragFloat( "XHair Scale", & grid.crosshair_scale, 0.001f, 0.0f, 1.0f );
+    if( ImGui.DragInt( "XHair Segmenta", & crosshair_segment_count, 1.0f, 1, 32 ))
         grid.crosshair_segment_angle = TAU / crosshair_segment_count;
     
     ImGui.Separator;
-    if( ImGui.DragInt( "Axis Subdivisions", & axis_subdivs, 1.0f, 3, 24 ))
-        axis_segment_angle = TAU / axis_subdivs;
+    if( ImGui.DragInt( "Axis Subdivis", & axis_subdivs, 1.0f, 3, 24 ))
+        axis.segment_angle = TAU / axis_subdivs;
+
+    ImGui.DragFloat( "Axis Radius", & axis.radius, 0.001f, 0.0f, 0.25f );
 }
 
 
