@@ -103,7 +103,7 @@ struct App {
     void initUBO() {
         ubo.max_ray_steps = 1;
         ubo.epsilon  = 0.01f;
-        ubo.hm_scale = 2.0f; 
+        ubo.hm_scale = 1.0f; 
         ubo.hm_height_factor = 0.5f;
         ubo.hm_level = 9;       // update sdf_hightmap.cells_per_axis !!!
         ubo.hm_max_level = 10;  // - " -

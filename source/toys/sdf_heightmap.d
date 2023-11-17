@@ -40,16 +40,16 @@ private {
 
     struct HM_Rays_PC {
         mat4        rays;
-        ivec2       res = uvec2(1, 5);
-        float       fov = 15.0f;
+        ivec2       res = uvec2(3, 1);
+        float       fov = 3.0f;
         //int         level = 10;
     }
     HM_Rays_PC      hm_rays;
-    int             hm_ray_count = 5;
+    int             hm_ray_count = 3;
     
     vec3            ray_eye         = vec3(2.0f, 1.0f, 0.5f);
-    vec3            ray_target      = vec3(0.0f, 0.0f, 0.5f);
-    vec3            ray_offset      = vec3(0);
+    vec3            ray_target      = vec3(0.0f, 0.125f, 0.5f);
+    vec3            ray_offset      = vec3(0.0f, 0.0f, 0.01f);
     uint            cells_per_axis  = 1 << 1;
 
 
@@ -327,7 +327,7 @@ void createDebugPSOs( ref App app ) nothrow @nogc {
         .addColorBlendState( VK_TRUE )                                              // color blend state - append common (default) color blend attachment state
         .addDynamicState( VK_DYNAMIC_STATE_VIEWPORT )                               // add dynamic states viewport
         .addDynamicState( VK_DYNAMIC_STATE_SCISSOR )                                // add dynamic states scissor
-        .addDynamicState( VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE )
+    //  .addDynamicState( VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE )
         .addDescriptorSetLayout( app.descriptor.descriptor_set_layout )             // describe grid_pso layout
         .addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 0, hm_poly.sizeof )      // specify push constant range
         .renderPass( app.render_pass_bi.renderPass )                                // describe COMPATIBLE render pass
@@ -352,6 +352,7 @@ void createDebugPSOs( ref App app ) nothrow @nogc {
         .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/simple.frag" ))  // deduce shader stage from file extension
         .inputAssembly( VK_PRIMITIVE_TOPOLOGY_LINE_STRIP )                          // set the inputAssembly
         .setColorBlendState( VK_FALSE )                                             // color blend state - set last added blend attachment state to on/off
+        .addDynamicState( VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE )
         .setPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 0, hm_rays.sizeof )      // specify push constant range
         .construct( app.pipeline_cache )                                            // construct the Pipleine Layout and Pipleine State Object (PSO) using pipeline cache
         .extractCore;
@@ -505,7 +506,7 @@ void recordCommands( ref App app, VkCommandBuffer cmd_buffer ) {
 
 
     // bind descriptor and draw texel poly planes pso
-    cmd_buffer.vkCmdSetDepthWriteEnable( hm_poly.w > 0.9f );
+    //cmd_buffer.vkCmdSetDepthWriteEnable( hm_poly.w > 0.9f );
     bind_descriptor( cmd_buffer, hm_poly_pso.layout );
     cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, hm_poly_pso.pipeline );
     cmd_buffer.vkCmdPushConstants( hm_poly_pso.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, hm_poly.sizeof, & hm_poly );
@@ -513,6 +514,7 @@ void recordCommands( ref App app, VkCommandBuffer cmd_buffer ) {
 
 
     // bind descriptor and draw ray lines pso
+    cmd_buffer.vkCmdSetDepthTestEnable( hm_poly.w > 0.9f );
     bind_descriptor( cmd_buffer, hm_rays_pso.layout );
     cmd_buffer.vkCmdBindPipeline( VK_PIPELINE_BIND_POINT_GRAPHICS, hm_rays_pso.pipeline );
     cmd_buffer.vkCmdPushConstants( hm_rays_pso.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, hm_rays.sizeof, & hm_rays );
@@ -595,7 +597,7 @@ void buildWidgets( ref App app ) {
                 app.debugQDM;
 
             ImGui.Separator;
-            if( ImGui.CollapsingHeader( "Rays MipMap Traversal" ))
+            if( ImGui.CollapsingHeader( "Rays MipMap Traversal", ImGui.ImGuiTreeNodeFlags.DefaultOpen ))
                 app.debugRays;
 
             ImGui.Separator;
@@ -785,7 +787,7 @@ void debugRays(ref App app) {
     // when editing Y Resolution, a different Pixel size gets computed in shader and the Ray X spread changes
     // to avoid this change in x spread, we recompute the field of view, to keep the same pixel size
     ivec2 res = hm_rays.res;
-    if (ImGui.DragInt2("R_Res", hm_rays.res, 0.1f, 0, 20)) {
+    if (ImGui.DragInt2("R_Res", hm_rays.res, 0.1f, 1, 24)) {
         hm_ray_count = hm_rays.res.x * hm_rays.res.y;
         if (res.y != hm_rays.res.y) {
             hm_rays.fov = hm_rays.fov / res.y * hm_rays.res.y;

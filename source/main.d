@@ -67,7 +67,9 @@ int main() {
     app.resizeResources;            // construct swapchain, create depth buffer and frambuffers
     app.createResources;            // configure swapchain, create renderpass and pipeline state object
     app.registerCallbacks;          // register glfw callback functions
-    app.initTrackball(5,5,5, 0,2,0);// initialize trackball with window size and default perspective projection data in VDrive State
+    app.initTrackball(
+        1.5f, 1.0f, -1.0f,
+        0.5f, 0.75f, 0.5f);// initialize trackball with window size and default perspective projection data in VDrive State
 
 
 
