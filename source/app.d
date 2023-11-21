@@ -71,7 +71,7 @@ struct App {
     // UBO related resources
     struct UBO {
         mat4    wvpm;   // World View Projection Matrix
-        mat4    wvpi;   // World View Projection Inverse Matrix
+    //  mat4    wvpi;   // World View Projection Inverse Matrix
         mat4    view;   // View Matrix, to transfrom into view space
         mat4    camm;   // Camera Matrix, position and orientation of the cam
         float   aspect;
@@ -138,6 +138,7 @@ struct App {
         void function(ref App_Meta_Init)            extInstance;
         void function(ref App_Meta_Init)            extDevice;
         void function(ref App_Meta_Init)            features;
+        void function(ref App)                      initialize;
         void function(ref App, ref Meta_Descriptor) descriptor;
         void function(ref App)                      create;
         void function(ref App, VkCommandBuffer)     record;
@@ -202,7 +203,7 @@ struct App {
     // multiply projection with trackball (view) matrix and upload to uniform buffer
     void updateWVPM() {
         ubo.wvpm = projection * tbb.worldTransform;
-        ubo.wvpi = tbb.viewTransform * projection_inverse;
+    //  ubo.wvpi = tbb.viewTransform * projection_inverse;
         ubo.view = tbb.worldTransform;  // to transfrom into View Space
         ubo.camm = tbb.viewTransform;   // position and orientation of can in world space
     //  vk.flushMappedMemoryRange( ubo_buffer.mem_range );    // we're flushing every frame anyway

@@ -3,7 +3,7 @@
 // uniform buffer
 layout(std140, binding = 0) uniform ubo {
     mat4	WVPM;	// World View Projection Matrix
-	mat4	WVPI; 	// World View Projection Inverse Matrix
+//	mat4	WVPI; 	// World View Projection Inverse Matrix
 	mat4	VIEW;  	// to transfrom into View Space	(inverse of CAMM)
     mat4	CAMM; 	// Camera Position and Rotation in World Space
 	float	Aspect;
@@ -305,48 +305,6 @@ float distance_field(vec3 p) { return distance_field(p, Far); }
 
 // Generate Rays
 void genRay(out vec3 ro, out vec3 rd)  {
-	/*
-
-    // compute ray at current pixel from depth 0 ...
-	vec4 projPos = vec4(vs_ndc_xy, 0, 1);
-	projPos = WVPI * projPos;
-	ro = projPos.xyz / projPos.w;
-
-    // ... to depth one
-	projPos = vec4(vs_ndc_xy, 1, 1);
-	projPos = WVPI * projPos;
-	rd = normalize(projPos.xyz / projPos.w - ro);
-	
-	/-/
-
-	// tan(a) = gegkath / ankath
-	// gegenkath = tan(a) * ankath
-	// ankath = 1 => gegengath = tan(a)
-
-	//vec2 rt = (gl_FragCoord.xy + 0.5) * Pixel_Size - 0.5 * Resolution;
-	//rd = normalize((CAMM * vec4(rt, 1, 1)).xyz - Eye_Pos);
-
-	//*/
-
-	
-	// vec2 xy = gl_FragCoord.xy - Resolution * 0.5;
-	// const float DEG_TO_RAD = 0.01745329238474369049072265625;
-	// float cot_half_fov = tan(( - 90.0 + FOV * 0.5) * DEG_TO_RAD);	
-	// float z = Resolution.y * 0.5 * cot_half_fov;
-	// rd = /*mat3(CAMM) */ normalize(vec3(xy, -z));
-	// ro = CAMM[3].xyz;	//(VIEW * vec4(0, 0, 1, 1)).xyz;//Eye_Pos;
-
-	
-
-	/*
-	// gltracy and Jamie Wong
-	// vec3 dir = ray_dir( 45.0, iResolution.xy, fragCoord.xy );
-	vec2 xy = pos - size * 0.5;
-	float cot_half_fov = tan( ( 90.0 - fov * 0.5 ) * DEG_TO_RAD );	
-	float z = size.y * 0.5 * cot_half_fov;
-	return normalize( vec3( xy, -z ) );
-	//*/
-
 	float DEG_TO_RAD = 0.01745329238474369049072265625;
 	float frag_size = 2.0 * tan(0.5 * FOV * DEG_TO_RAD) / Resolution.y;
 	vec2 ray_trg = vec2(1, -1) * (gl_FragCoord.xy - 0.5 * Resolution);	// Flip gl_FragCoord.y, as world is Y-up and VK FragCoord Y-down
