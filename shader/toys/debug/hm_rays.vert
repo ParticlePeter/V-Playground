@@ -18,13 +18,14 @@ layout(std140, binding = 0) uniform ubo {
 	float	Speed;
 
 	// Ray Marching
-	uint	MaxRaySteps;
+	uint	Max_Ray_Steps;
 	float	Epsilon;
 
 	// Heightmap
 	float   HM_Scale; 
 	float   HM_Height_Factor;
 	int    	HM_Level;
+	int    	HM_Min_Level;
 	int		HM_Max_Level;
 };
 
@@ -34,6 +35,7 @@ layout(push_constant) uniform Push_Constant {
     uvec2   R_Res;
     vec2    R_Size_Inc;
     float   R_FOV;
+    uint    R_Max_Steps;
 };
 
 layout(binding = 2) uniform sampler2D noise_tex;
@@ -85,14 +87,14 @@ vec3 color_ramp(float t) {
 // parametrically define vertex size and color
 vec4 result(vec3 p, uint vi) {
     gl_PointSize = R_Size_Inc.x + R_Size_Inc.y * vi;
-    vs_color = vec4(color_ramp(float(vi) / (MaxRaySteps + 1)), 1.0);
+    vs_color = vec4(color_ramp(float(vi) / (R_Max_Steps + 1)), 1.0);
     return vec4(p, 1);
 }
 
 
 // axis aligned bounding box, returns min and max hit 
 // source: https://tavianator.com/2022/ray_box_boundary.html
-// Note: ray direction must be input inverted: rd_inv = 1.0 / rd;
+// Note: ray direction must be passed in inverted: rd_inv = 1.0 / rd;
 bool aabb(vec3 ro, vec3 rd_inv, vec3 b_min, vec3 b_max, inout vec2 e) {
     vec3 t1 = (b_min - ro) * rd_inv;
     vec3 t2 = (b_max - ro) * rd_inv;
@@ -113,9 +115,6 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
     ++vi;
 
 	float h = HM_Height_Factor * textureLod(noise_tex, vec2(0), HM_Max_Level).r;	//HM_Scale * HM_Height_Factor;
-	// float sxy = 0.5 * HM_Scale;		// side xy
-	// float hps = sxy / Resolution.x;	// half pixel size
-	// float bxy = sxy - hps;			// reduce marching box with half a pixel on each side, to start on pixel center
 
 	// build an axis aligned aounding box (AABB) arround the heightmap and test for entry points
     // aabb test requires inverted ray direction: rd_inv = 1.0 / rd with extra code to avoid div by 0
@@ -123,13 +122,12 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
 	vec2 bb_near_far = vec2(Near, Far);
 	if (!aabb(ro, rd_inv, vec3(0), vec3(1, h, 1), bb_near_far)) {
 		// return far_plane();
-        return vec4(ro + Far * rd, 1);
+        return result(ro + Far * rd, 1);//vec4(ro + Far * rd, 1);
 	}
 
 
 	// reaching here we have a AABB hit and can compute the WS hit point
-	// vec2 uv = world_to_uv(p.xz);
-    // vec3 p = ro + bb_near_far[ clamp(0, 1, VI - 1) ] * rd;
+    // we need en epsilon, to guerantee that the hit point ends up slightly inside the box
 	vec3 p = ro + (Epsilon + bb_near_far.x) * rd;   // we need en epsilon, to guerantee that the hit point ends up slightly inside the box
     if (VI == vi)   // vi = 1
         return result(p, vi);
@@ -146,41 +144,43 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
     // We calculate ray movement vector in inter-cell numbers.
     ivec2 DirSign = ivec2(sign(rd.xz));
 
+    // We calculate the index offsets for ray plane intersections of texel boundary planes
+    uvec2 texelPlaneOffset = uvec2(sign(rd.xz) + 1) / 2;
+
     // Main loop
     uint step_count = 0;
-    while (level >= 0 && step_count < MaxRaySteps) {
-        //  for(uint step_count = 0; step_count < MaxRaySteps; ++step_count) {
-        
-        //if (distance(p, p) > bb_near_far.y) {
-        if (any(lessThanEqual(p.xz, vec2(0))) || any(greaterThan(p.xz, vec2(1)))) {
-            return vec4(ro + Far * rd, 1);
+    while (level >= 0 && step_count < R_Max_Steps) {
+
+        // Early out if the ray exists the AABB, Todo(pp): substitute 0 and 1 with editable BBox dims
+        if (any(lessThan(p.xz, vec2(0))) || any(greaterThan(p.xz, vec2(1)))) {
+            return result(ro + Far * rd, 1);
+
         }
 
         ++step_count;
 
         // We get current cell minimum plane using tex2Dlod.
-        // h = tex2Dlod(HeightTexture , float4(p.xy, 0.0 , level)).w;
         vec2 uv = p.xz;	//world_to_uv(p.xz);
         h = HM_Height_Factor * textureLod(noise_tex, uv, level).r;
-        // h = HM_Max_Level - HM_Max_Level * textureLod(noise_tex, uv, level).r;
 
         // If we are not blocked by the cell we move the ray.
         if (h < p.y) {
 
-            // We calculate predictive new ray position.
-            vec3 q = p - rd * rd_inv.y * (p.y - h);
+            // We calculate predictive new ray position, which moves as far as the hight of the current cell
+            vec3 q = p + rd * rd_inv.y * (h - p.y);
 
             // We compute current and predictive position.
             // Calculations are performed in cell integer numbers.
             int     lod_res = 1 << (HM_Max_Level - level);
             float   lod_res_inv = 1.0 / lod_res;
             // ivec4 texel_idx = ivec4((vec4(p.xz, q.xz) + 0.5 * HM_Scale) / HM_Scale) * lod_res;
-            ivec4 texel_idx = ivec4(vec4(p.xz, q.xz) * lod_res);
+            ivec4 texel_idx = ivec4(floor(vec4(p.xz, q.xz) * lod_res));
 
             // We test if both positions are still in the same cell.
             // If not, we have to move the ray to nearest cell boundary.
             // if (texel_idx.x != texel_idx.z || texel_idx.y != texel_idx.w) {
             if (any(notEqual(texel_idx.xy, texel_idx.zw))) {
+
                 // Compute ray plane intersection of X and Z planes of current cell where ray direction points to and Y Heightmap min plane
                 // We use Matrix vector multiplication to get the 2 * 3 required dot products. Algorithm used (one 2 dot products):
                 // https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-plane-and-ray-disk-intersection.html  
@@ -188,11 +188,9 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
                 // As the planes are axis aligned, we use an identity matrix, which results in no-ops, hence not needed
                 //
                 // plane point (pp) of X, Z and Y planes, then swizzled back into X, Y and Z planes
-                vec3 pp = vec3((texel_idx.xy + (DirSign + 1) * 0.5) * lod_res_inv, 0);   
-                vec3 t = (pp.xzy - p) * rd_inv;                             // we swizzele, to move the Y plane coord (0) into the propper position
-                q = p + 1.0001 * (Epsilon + min(t.x, min(t.y, t.z))) * rd;  // Epsilon os needed to guarantee that we end up in the next texel, otherwise we might get stuck  
-                
-                
+                vec3 pp = vec3((texel_idx.xy + texelPlaneOffset) * lod_res_inv, 0);   
+                vec3 t = (pp.xzy - p) * rd_inv;                     // we swizzele, to move the Y plane coord (0) into the propper position
+                q = p + (Epsilon + min(t.x, min(t.y, t.z))) * rd;   // Epsilon os needed to guarantee that we end up in the next texel, otherwise we might get stuck  
                 level += 2;
             }
 
@@ -212,14 +210,15 @@ vec4 sdf_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) 
 
 // Generate Rays
 void genRay(out vec3 ro, out vec3 rd)  {
-    uint yres = 5;
-    //mat4 RAYS = mat4(0,0,1,0, 0,1,0,0, -1,0,0,0, 0,0,0,1) * CAMM;
 	float DEG_TO_RAD = 0.01745329238474369049072265625;
 	float frag_size = 2.0 * tan(0.5 * R_FOV * DEG_TO_RAD) / R_Res.y;
-	vec2 ray_trg = /*vec2(1, -1) */ (vec2(II % R_Res.x, II / R_Res.x) - 0.5 * (R_Res - 1));
+	vec2 ray_trg = (vec2(II % R_Res.x, II / R_Res.x) - 0.5 * (R_Res - 1));
 	rd = normalize(mat3(RAYS) * vec3(frag_size * ray_trg, 1));
 	ro = RAYS[3].xyz;
+
+    // Orthographic Rays
     // rd = RAYS[2].xyz;
+    // ro = RAYS[3].xyz + 0.125 * R_FOV * (ray_trg.x * RAYS[0].xyz + ray_trg.y * RAYS[1].xyz);
 }
 
 
@@ -236,29 +235,3 @@ void main() {
 
     //gl_Position = WVPM * vec4(ro + VI * rd, 1);
 }
-
-
-/*
-// vkCmdDrawIndexed
-void main() {
-
-    const float Angle = 60.0 * 0.0174532925199432957692369;
-
-    vec4 pos = vec4(0, 0, 0, 1);
-    vs_color = pos;
-
-    if(VI > 0) {
-        pos.xy = vec2(-1, -1);
-
-        int vi = VI - 1;
-        float cos_angle = cos(vi * Angle);
-        float sin_angle = sin(vi * Angle);
-        mat2 ROT = mat2(cos_angle, sin_angle, - sin_angle, cos_angle);
-
-        pos.xz = ROT * pos.xz;
-        vs_color = colors[ vi % 6 ];
-    }
-
-    gl_Position = WVPM * pos;
-}
-*/
