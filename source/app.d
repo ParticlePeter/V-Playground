@@ -86,13 +86,14 @@ struct App {
         float   speed = 0.0f;   // accumulated speed_amp * time_delta
 
         // Ray Marching
-	    int	    max_ray_steps = 1;
-	    float   epsilon = 0.000001f;
+	    int	    max_ray_steps = 256;
+	    float   epsilon = 0.0001f;
 
         // Heightmap
         float   hm_scale   = 10.0f; 
         float   hm_height_factor = 0.5f;
         int     hm_level = 0;
+        int     hm_min_level = 0;
         int     hm_max_level = 0;
     }   
 
@@ -101,11 +102,12 @@ struct App {
     float last_time;
 
     void initUBO() {
-        ubo.max_ray_steps = 1;
-        ubo.epsilon  = 0.01f;
+        ubo.max_ray_steps = 256;
+        ubo.epsilon  = 0.0001f;
         ubo.hm_scale = 1.0f; 
         ubo.hm_height_factor = 0.5f;
         ubo.hm_level = 9;       // update sdf_hightmap.cells_per_axis !!!
+        ubo.hm_min_level =  0;  // - " -
         ubo.hm_max_level = 10;  // - " -
     }
 

@@ -25,6 +25,7 @@ layout(std140, binding = 0) uniform ubo {
 	float   HM_Scale; 
 	float   HM_Height_Factor;
 	int    	HM_Level;
+    int    	HM_Min_Level;
 	int		HM_Max_Level;
 };
 
