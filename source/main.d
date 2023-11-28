@@ -83,7 +83,9 @@ int main() {
         }
     }
 
-
+    foreach( ref toy; app.my_toys )
+        if( toy.initialize !is null )
+            toy.initialize( app );
     
 
     // initial draw
