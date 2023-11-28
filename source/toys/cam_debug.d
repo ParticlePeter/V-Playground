@@ -11,16 +11,16 @@ nothrow @nogc:
 private {
     struct Grid_PC {
         float[3]    center = [ 0.0f, 0.0f, 0.0f ];
-        float       scale  = 2.0f;
+        float       scale  = 0.0f;
         float[4]    color  = [ 0.5, 0.5, 0.5, 1.0 ];
         int         cells_per_axis = 12;
-        float       crosshair_scale = 0.0f;
+        float       crosshair_scale = 0.02f;
         float       crosshair_segment_angle = TAU / 16;
     }
 
     struct Axis_PC {
         float       segment_angle = TAU / 8;
-        float       radius = 0.05f;
+        float       radius = 0.02f;
     }
 
     Core_Pipeline   grid_pso;
@@ -196,6 +196,7 @@ void AxisAndGrid( ref App app ) {
         axis.segment_angle = TAU / axis_subdivs;
 
     ImGui.DragFloat( "Axis Radius", & axis.radius, 0.001f, 0.0f, 0.25f );
+    ImGui.Separator;
 }
 
 
@@ -225,6 +226,7 @@ void debugCamera( ref App app ) {
     ImGui.DragFloat4("Row 2", camm_transposed[2], 0.01f, 0.0f, 1.0f);
     ImGui.DragFloat4("Row 3", camm_transposed[3], 0.01f, 0.0f, 1.0f);
     ImGui.PopItemWidth();
+    ImGui.Separator;
 }
 
 
