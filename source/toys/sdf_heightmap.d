@@ -46,7 +46,7 @@ private {
     vec3        ray_offset      = vec3(0.0f, 0.0f, 0.01f);
     float       ray_angle       = 0.0f;
     float       ray_angle_speed = 0.0f;
-    uint        cells_per_axis  = 1 << 1;
+    uint        cells_per_axis;         // intialized post app.ubo
 
     vec4        hm_poly = vec4(1);      // currently only the color multiplier for the poly-boxes
 
@@ -72,7 +72,7 @@ App.Toy GetToy() {
     toy.extInstance = & getInstanceExtensions;
     toy.extDevice   = & getDeviceExtensions;
     toy.features    = & getFeatures;
-//  toy.initialize  = & initialize;
+    toy.initialize  = & initialize;
     toy.descriptor  = & createDescriptor;
     toy.create      = & createPSOs;
     toy.record      = & recordCommands;
@@ -123,6 +123,12 @@ void getFeatures( ref App_Meta_Init meta_init ) {
     indexing_features.runtimeDescriptorArray = VK_TRUE;
 
     meta_init.addExtendedFeature( & indexing_features );
+}
+
+
+// initialize private date AFTER app initialization
+void initialize( ref App app ) {
+    cells_per_axis = app.cellsPerAxis;
 }
 
 
@@ -236,7 +242,7 @@ void createRaymarchPSO( ref App app ) {
             break;
         case Scene.Modern:
             vert_shader = "shader/toys/sdf/sdf.vert";
-            frag_shader = "shader/toys/sdf/sdf.frag";
+            frag_shader = "shader/toys/sdf/sdf_heightmap.frag";
             break;
         case Scene.Noise:
             vert_shader = "shader/toys/sdf/noise_vis.vert";
@@ -619,6 +625,11 @@ void buildWidgets( ref App app ) {
 }
 
 
+int cellsPerAxis( ref App app ) {
+    return 1 << ( app.ubo.hm_max_level - app.ubo.hm_min_level );
+}
+
+
 void buildRaymarchWidgets(ref App app) {
     import ImGui = d_imgui;
 
@@ -632,12 +643,11 @@ void buildRaymarchWidgets(ref App app) {
     ImGui.DragFloat( "HM Height Factor", & app.ubo.hm_height_factor, 0.01f, 0.0f, 2.0f );
     ImGui.Separator;
 
-    bool update_cells_per_axis = false;
+    bool update_cells_per_axis = true;
     bool sync_ray_steps = app.ubo.max_ray_steps == hm_rays.max_steps;
     if( ImGui.DragInt( "Max Ray Steps", & app.ubo.max_ray_steps, 0.125, 1, 1024 ) && sync_ray_steps )
         hm_rays.max_steps = app.ubo.max_ray_steps;
 
-    update_cells_per_axis |= ImGui.DragInt( "HM Mip Level", & app.ubo.hm_level,  0.125, 0, 10 );
     update_cells_per_axis |= ImGui.DragInt( "HM Min Level", & app.ubo.hm_min_level, 0.125, 0, 10 );
     update_cells_per_axis |= ImGui.DragInt( "HM Max Level", & app.ubo.hm_max_level, 0.125, 0, 10 );
     ImGui.Separator;
@@ -648,16 +658,15 @@ void buildRaymarchWidgets(ref App app) {
         if( sync_ray_steps )  hm_rays.max_steps = app.ubo.max_ray_steps;
     }
 
-    update_cells_per_axis |= ImGui.InputScalar( "HM Mip Level MP", ImGui.ImGuiDataType.S32, & app.ubo.hm_level, & s32_one, null, "%d" );
     update_cells_per_axis |= ImGui.InputScalar( "HM Min Level MP", ImGui.ImGuiDataType.S32, & app.ubo.hm_min_level, & s32_one, null, "%d" );
     update_cells_per_axis |= ImGui.InputScalar( "HM Max Level MP", ImGui.ImGuiDataType.S32, & app.ubo.hm_max_level, & s32_one, null, "%d" );
     ImGui.Separator;
 
     if( update_cells_per_axis ) {
-        app.ubo.hm_level = clamp(app.ubo.hm_level, 0, 10);
+        update_cells_per_axis = false;  // its static
         app.ubo.hm_min_level = clamp(app.ubo.hm_min_level, 0, 10);
         app.ubo.hm_max_level = clamp(app.ubo.hm_max_level, 0, 10);
-        cells_per_axis = 1 << ( app.ubo.hm_max_level - app.ubo.hm_level );
+        cells_per_axis = app.cellsPerAxis;
     }
 }
 
@@ -672,6 +681,95 @@ void destroyResources( ref App app ) {
     app.destroy( hm_pnts_pso );
 
     app.destroy( heightmap_img );
+}
+
+
+// debug and verify camera functions and matrices
+void debugRays(ref App app) {
+    draw_rays_traversal = true;
+
+    import ImGui = d_imgui;
+    ImGui.PushItemWidth(push_item_width);
+
+    if(!draw_raymarching)
+        app.buildRaymarchWidgets;
+
+    //ImGui.Text("Poly Heightmap");
+    ImGui.Checkbox("Poly Heightmap", & draw_poly );
+    //ImGui.ColorEdit4( "P_Color", hm_poly, ImGui.ImGuiColorEditFlags.DisplayHSV );
+    ImGui.DragFloat4( "P_Color", hm_poly, 0.01f, 0.0f, 1.0f );
+    ImGui.Separator;
+
+    //ImGui.Text("Rays Cam");
+    ImGui.Checkbox("Rays Cam", & draw_rays);
+    ImGui.SameLine;
+    ImGui.Checkbox("Relative to real Cam", & ray_relative_to_cam);
+
+    uint u32_one = 1;
+    if( ImGui.InputScalar( "R_Max_Steps", ImGui.ImGuiDataType.U32, & hm_rays.max_steps, & u32_one, null, "%d" ))
+        hm_rays.max_steps = clamp( hm_rays.max_steps, 1, 1024 );
+
+    static bool update_rays_cam = true;
+    if( ImGui.Button( "Get Cam Look At" )) {
+        app.tbb.lookingAt( ray_eye, ray_target );
+        update_rays_cam = true;
+    }
+
+    update_rays_cam |= ImGui.DragFloat3("R_Eye", ray_eye, 0.01f, -24.0f, 24.0f);
+    update_rays_cam |= ImGui.DragFloat3("R_Target", ray_target, 0.01f, -24.0f, 24.0f);
+    update_rays_cam |= ImGui.DragFloat3("R_Offset", ray_offset, 0.01f, -24.0f, 24.0f);
+    update_rays_cam |= ImGui.DragFloat("R_Rotate", & ray_angle, 0.1f );
+
+    ImGui.DragFloat("R_RSpeed", & ray_angle_speed, 0.01f, -10.0f, 10.0f );
+    ImGui.SameLine;
+    ImGui.Checkbox("##R_RPlay", & ray_angle_play);
+
+    if (update_rays_cam || ray_relative_to_cam || ray_angle_speed != 0.0f ) {
+        update_rays_cam = false;
+
+        if (ray_angle_play) {
+            ray_angle += ray_angle_speed;
+            if( ray_angle < -180.0f ) ray_angle =  180.0f;
+            if( ray_angle >  180.0f ) ray_angle = -180.0f;
+        }
+        
+        vec3 pivot = ray_offset + ray_target;
+        if (ray_relative_to_cam) {
+            auto mat = mat4x3(app.tbb.viewTransform);
+            hm_rays.rays = lookAtView(
+                mat * vec4(ray_offset + ray_eye, 1.0f), 
+                mat * vec4(ray_offset + ray_target, 1.0f)
+            );
+        } else {
+            hm_rays.rays = lookAtView(ray_offset + ray_eye, ray_offset + ray_target);
+        }
+        hm_rays.rays[3].xyz = hm_rays.rays[3].xyz - pivot;
+        hm_rays.rays.rotateY( 0.01745329238474369049072265625 * ray_angle );
+        hm_rays.rays[3].xyz = hm_rays.rays[3].xyz + pivot;
+    }
+
+
+    // when editing Y Resolution, a different Pixel size gets computed in shader and the Ray X spread changes
+    // to avoid this change in x spread, we recompute the field of view, to keep the same pixel size
+    ivec2 res = hm_rays.res;
+    if (ImGui.DragInt2("R_Res", hm_rays.res, 0.1f, 1, 24)) {
+        hm_ray_count = hm_rays.res.x * hm_rays.res.y;
+        if (res.y != hm_rays.res.y) {
+            hm_rays.fov = hm_rays.fov / res.y * hm_rays.res.y;
+        }
+    }
+
+    ImGui.DragFloat("R_Fov", & hm_rays.fov, 0.1f, 0.0f, 30.0f);
+    ImGui.DragFloat2("R_Size_Inc", hm_rays.size_inc, 0.01f, 0.0f, 5.0f);
+    ImGui.Separator;
+
+    // ImGui.Separator;
+    // ImGui.Text( "Rays Cam Matrix" );
+    // auto rays_transposed = hm_rays.rays.transpose;
+    // ImGui.DragFloat4("Row_0", rays_transposed[0], 0.01f, 0.0f, 1.0f);
+    // ImGui.DragFloat4("Row_1", rays_transposed[1], 0.01f, 0.0f, 1.0f);
+    // ImGui.DragFloat4("Row_2", rays_transposed[2], 0.01f, 0.0f, 1.0f);
+    // ImGui.DragFloat4("Row_3", rays_transposed[3], 0.01f, 0.0f, 1.0f);
 }
 
 
@@ -709,7 +807,7 @@ void debugQDM(ref App app) {
 	// Heightmap
 	float   HM_Scale            = app.ubo.hm_scale; 
 	float   HM_Height_Factor    = app.ubo.hm_height_factor;
-	int    	HM_Level            = app.ubo.hm_level;
+	int    	HM_Min_Level        = app.ubo.hm_min_level;
 	int		HM_Max_Level        = app.ubo.hm_max_level;
 
 	float top = HM_Height_Factor;   //HM_Scale * HM_Height_Factor;
@@ -790,97 +888,11 @@ void debugQDM(ref App app) {
     ImGui.DragFloat3("hp", p,  0.01f, -20.0f, 20.0f);
     ImGui.DragFloat2("uv", uv, 0.01f,   0.0f,  1.0f);
 
-    int lod_res = 1 << (HM_Max_Level - HM_Level);
+    int lod_res = 1 << (HM_Max_Level - HM_Min_Level);
     ivec2 NodeIdx = clamp(ivec2(uv * lod_res), ivec2(0), ivec2(lod_res - 1));
     ImGui.DragInt2("idx", NodeIdx, 1.0f, 0,  1024);
     ImGui.Separator;
 }
 
 
-// debug and verify camera functions and matrices
-void debugRays(ref App app) {
-    draw_rays_traversal = true;
 
-    import ImGui = d_imgui;
-    ImGui.PushItemWidth(push_item_width);
-
-    if(!draw_raymarching)
-        app.buildRaymarchWidgets;
-
-    //ImGui.Text("Poly Heightmap");
-    ImGui.Checkbox("Poly Heightmap", & draw_poly );
-    //ImGui.ColorEdit4( "P_Color", hm_poly, ImGui.ImGuiColorEditFlags.DisplayHSV );
-    ImGui.DragFloat4( "P_Color", hm_poly, 0.01f, 0.0f, 1.0f );
-    ImGui.Separator;
-
-    //ImGui.Text("Rays Cam");
-    ImGui.Checkbox("Rays Cam", & draw_rays);
-    ImGui.SameLine;
-    ImGui.Checkbox("Relative to real Cam", & ray_relative_to_cam);
-
-    uint u32_one = 1;
-    if( ImGui.InputScalar( "R_Max_Steps", ImGui.ImGuiDataType.U32, & hm_rays.max_steps, & u32_one, null, "%d" ))
-        hm_rays.max_steps = clamp( hm_rays.max_steps, 1, 1024 );
-
-    bool update_rays_cam = false;
-    if( ImGui.Button( "Get Cam Look At" )) {
-        app.tbb.lookingAt( ray_eye, ray_target );
-        update_rays_cam = true;
-    }
-
-    update_rays_cam |= ImGui.DragFloat3("R_Eye", ray_eye, 0.01f, -24.0f, 24.0f);
-    update_rays_cam |= ImGui.DragFloat3("R_Target", ray_target, 0.01f, -24.0f, 24.0f);
-    update_rays_cam |= ImGui.DragFloat3("R_Offset", ray_offset, 0.01f, -24.0f, 24.0f);
-    update_rays_cam |= ImGui.DragFloat("R_Rotate", & ray_angle, 0.1f );
-
-    ImGui.DragFloat("R_RSpeed", & ray_angle_speed, 0.01f, -10.0f, 10.0f );
-    ImGui.SameLine;
-    ImGui.Checkbox("##R_RPlay", & ray_angle_play);
-
-    if (update_rays_cam || ray_relative_to_cam || ray_angle_speed != 0.0f ) {
-        update_rays_cam = false;
-
-        if (ray_angle_play) {
-            ray_angle += ray_angle_speed;
-            if( ray_angle < -180.0f ) ray_angle =  180.0f;
-            if( ray_angle >  180.0f ) ray_angle = -180.0f;
-        }
-        
-        vec3 pivot = ray_offset + ray_target;
-        if (ray_relative_to_cam) {
-            auto mat = mat4x3(app.tbb.viewTransform);
-            hm_rays.rays = lookAtView(
-                mat * vec4(ray_offset + ray_eye, 1.0f), 
-                mat * vec4(ray_offset + ray_target, 1.0f)
-            );
-        } else {
-            hm_rays.rays = lookAtView(ray_offset + ray_eye, ray_offset + ray_target);
-        }
-        hm_rays.rays[3].xyz = hm_rays.rays[3].xyz - pivot;
-        hm_rays.rays.rotateY( 0.01745329238474369049072265625 * ray_angle );
-        hm_rays.rays[3].xyz = hm_rays.rays[3].xyz + pivot;
-    }
-
-
-    // when editing Y Resolution, a different Pixel size gets computed in shader and the Ray X spread changes
-    // to avoid this change in x spread, we recompute the field of view, to keep the same pixel size
-    ivec2 res = hm_rays.res;
-    if (ImGui.DragInt2("R_Res", hm_rays.res, 0.1f, 1, 24)) {
-        hm_ray_count = hm_rays.res.x * hm_rays.res.y;
-        if (res.y != hm_rays.res.y) {
-            hm_rays.fov = hm_rays.fov / res.y * hm_rays.res.y;
-        }
-    }
-
-    ImGui.DragFloat("R_Fov", & hm_rays.fov, 0.1f, 0.0f, 30.0f);
-    ImGui.DragFloat2("R_Size_Inc", hm_rays.size_inc, 0.01f, 0.0f, 5.0f);
-    ImGui.Separator;
-
-    // ImGui.Separator;
-    // ImGui.Text( "Rays Cam Matrix" );
-    // auto rays_transposed = hm_rays.rays.transpose;
-    // ImGui.DragFloat4("Row_0", rays_transposed[0], 0.01f, 0.0f, 1.0f);
-    // ImGui.DragFloat4("Row_1", rays_transposed[1], 0.01f, 0.0f, 1.0f);
-    // ImGui.DragFloat4("Row_2", rays_transposed[2], 0.01f, 0.0f, 1.0f);
-    // ImGui.DragFloat4("Row_3", rays_transposed[3], 0.01f, 0.0f, 1.0f);
-}

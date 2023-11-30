@@ -83,13 +83,13 @@ int main() {
         }
     }
 
+    // initial draw
+    app.drawInit;
+
+    // Initialize toys post App init
     foreach( ref toy; app.my_toys )
         if( toy.initialize !is null )
             toy.initialize( app );
-    
-
-    // initial draw
-    app.drawInit;
 
 //    {
 //        import std.stdio;

@@ -23,7 +23,6 @@ layout(std140, binding = 0) uniform ubo {
 	// Heightmap
 	float   HM_Scale; 
 	float   HM_Height_Factor;
-	int    	HM_Level;
 	int    	HM_Min_Level;
 	int		HM_Max_Level;
 };
@@ -158,6 +157,17 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 	}
 
 	// Get the final point on the slope between the current cell and its closest cell (in +- ray dir)
+	// 1. decide to use previous or next pixel in major ray direction (the larger one of absolute rd x and z components)
+	//	- multiply uv coordinate with Mip Level 0 Resolution and store its fractional part
+	//	- if major ray direction is positive
+	//		- fractional part >= 0.5 ? advance ray with one texel width in pos rd : ... neg rd
+	//	- if major ray direction is negative
+	//		- fractional part >= 0.5 ? advance ray with one texel width in neg rd : ... pos rd
+	// 2. set q to the point further away from ro, snap to pixel center on major direction axis
+	// 3. set p to the point closer to ro, snap to pixel center on major direction axis
+	// 4. sample hight from texture corresponding to p and q uv values to get line segment
+	// 5. intersect ray with line segment (in 2D, ignoring major ray direction)
+	//
 	// vec3 rd_abs = abs(rd);
 	// uint max_comp = 2 * uint(rd_abs.x < rd_abs.z);
 	// vec3 q = p + rd * rd_inv[ max_comp ] * (p[ max_comp ] + sign(rd)[ max_comp ] / Resolution.x);

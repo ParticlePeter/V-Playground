@@ -25,7 +25,6 @@
 // uniform buffer
 layout(std140, binding = 0) uniform uboViewer {
     mat4	WVPM;	// World View Projection Matrix
-    mat4	WVPI; 	// World View Projection Inverse Matrix
 	vec3	Eye_Pos;
 	float 	Aspect;	// Aspect of the window
 	vec4	iMouse;	// xy framebuffer coord when LMB pressed, zw when clicked

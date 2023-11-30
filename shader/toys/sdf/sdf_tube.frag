@@ -5,7 +5,6 @@
 // uniform buffer
 layout(std140, binding = 0) uniform uboViewer {
     mat4	WVPM;	// World View Projection Matrix
-//	mat4	WVPI; 	// World View Projection Inverse Matrix
 	mat4	VIEW;  	// to transfrom into View Space	(inverse of CAMM)
     mat4	CAMM; 	// Camera Position and Rotation in World Space
 	vec3	Eye_Pos;
