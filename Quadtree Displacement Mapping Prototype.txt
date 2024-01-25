@@ -1,0 +1,201 @@
+Quadtree Displacement Mapping Prototype
+=======================================
+
+Task: Simulatneaously raymarch analytic Signed Distance Functions (SDFs) and discrete heightmaps, including blobbyness (smooth sets)
+
+Issue: non-directional SDF distance evaluation vs. directional hightmap search
+
+- Raymarching is the process of marching along a set of rays with a given origin and direction with a specific step size.
+  - To raymarch a scene, the origin of each ray is the camera position, the genral direction the camera's view direction.
+    Without considering antialiasing, one ray per resulting pixel is used, its direction slightly offset, in respect to the camera's field of view and aspect.
+  - To sample a set of SDFs, the each SDF is evaluated at every step, or rather at each step's world space (WS) coordinate.
+    The result of this evaluation is the closest distance to each of the SDFs zero function value, but not the coordinate of that closest point.
+    A common acceleration practice is not using a fixed step size for marching, but rather the minimum distance of all the evaluated SDFs.
+    The march along the ray is stoped when:
+    1. an absolute distance of an SDF in respect to the current position evaluates to less than a user specified epsilon
+    2. the accumulated steps along a ray is greater than a maximum distance, usually the cameras back plane
+  - To sample a hightmap (naive approach) a fixed step size above/bellow the hight-mapped area is needed, so that the lookup uv coordiantes can be
+    computed from the step's WS coordinate. To avoid und/oversampling, the step size, projected onto the hightmap plane should be around one texel size.
+    The march along the ray is stopped when:  
+    1. a step's WS coordinate ends up bellow the evaluated hightmap height (as looked up on the on the corresponding uv/texel)
+    2. the ray leaves the area of the heightmap without finding a sample point above its trajectory
+    3. the ray march never gets into the projected area of the hightmap plane (Axis Aligned Bounding Box test)
+  - Acceleration structures:
+    1. Axis Aligned Bounding Box (AABB):
+       Usefull for SDFs and Heightmaps, both can be bound by an AABB, which than can be efficiently evaluated for a Ray-AABB Hit/Miss, skipping empty space.
+    2. Quadtree Displacement Mapping (implemented algorithm), a Max-Height Quadtree, which can be used to quickly discard or leap through Low Resolution levels
+    3. (Relaxed) Cone Step Mapping, uses a precomputed per-pixel width of a cone, which barely penetrates the closest heightmap evaluated feature, s.t. above 
+       each pixel, the maximum step width can be computed at reuntime
+
+- Smooth set operation e.g. union, subtraction, intersection (blobbyness)
+  - Blobbyness is based on the non-directional minimum distances of SDFs. A 2-SDF union operation combines two distances and a blob-size into a new distance.
+    As example, two spheres, of same size, above each other, not touching, their surfaces 0.2 units appart. Without blobbiness, a horizontal ray passes precisly
+    between the two spheres. With the above explained raymarching approach for SDFs the stapsize would be iteratively reduced to max 0.1 units stepping between
+    the spheres and than grow again, without the ray hitting anything.
+    With a smooth union operation of the two SDFs at an equal distance of e.g. 0.125 to each of the spheres, the smooth union function would compute a resulting
+    distance of 0.0, which would result in a hit. The closer the ray gets to the upper SDF and further from the lower one, the smooth union operator would again
+    compute a 0.0 distance, s.t. the combined shaped would result in a smooth hour glass.
+  - Similar to SDFs, to achive blobbiness with hightmaps, the closest distance between an arbitrary point A must be found to a point H on the evaluted heightmap.
+    With an naive approach, for each march step and its resulting WS coordinate (A) this clostes distance (H) must be found which than in turn can be evaluated
+    with another distance (SDF) by a smooth set operation function.
+    Even with the Max-Hight Quadtree in place (see possible search algorithm bellow) this would be too much uneccessarey work.
+    A possible acceleration is to start a closest point on hightmap only if the other (SDF) distance is close to the blob-size defined blobiness extent. 
+  - CLosets Point on hightmap search with a Max-Hight Quadree can be accelerated with a Branch and Bound algorithm:
+    https://en.wikipedia.org/wiki/Branch_and_bound
+
+
+Implementation of Quadtree Displacement Mapping (QDM)
+- The slides of QDM can be found in this package and at: https://www.gdcvault.com/play/1012014/Quadtree-Displacement-Mapping-with-Height
+  a short summary of the algorithm follows here, however we recommend the isnpection of the QDM Ray Tracing part, starting at page 34
+  the implemented steps diverge slightly from the original algorithm, but it should still be possible to follow the images
+- for protyping we used Vulkan and GLSL, running the raymarcher in the fragment shader, see more in paragraph Implementation Details.
+- The shader function sd_heightmap takes encapsulates the hightmap tracing code. It requires ray origin and direction as argument and returns a color with hit depth
+  encoded in alpha channel the return value is currently not used as the color is directly written to the fragment shader color output.
+
+
+Implementation brief
+- store highest level index
+- Build AABB from heightmap world extent and highest quadtree level
+- Intersect AABB with ray, early exit if no hit exit
+  - no hit -> exit early
+  - hit -> store hitpoint P
+- while level index > 0 and step count < max step count
+  - decrement level index, increment step count
+  - sample height h using texel at level index under P 
+  - if h < P.y
+    - compute point Q = P + x * ray direction s.t. Q.y = h (continue the ray to intesect the horizontal plane at height h)
+    - if ray crossed texel boundaries (if Q is above a different texel than P)
+      - compute intesection between ray and that boundarie and overwrite Q with the hitpoint
+      - increment level index by 2 (will be devremented by 1 at next loop setp)
+    - assign P = Q
+
+
+Implementation detailed
+- Resources for the shader:
+  - heightmap         : a 1 channel flaot texture with its max quadtree stored in mipmap chain, each layer accessible
+  - HM_Height_Factor  : uniform constant, factor for the height as stored in the heightmap texture
+  - HM_Max_Level      : uniform constant, the highest mipmap level index (smallest resolution)
+  - Max_Ray_Steps     : uniform constant, the maximum ray step count, so that we do net get stuck
+  - Epsilon           : uniform constant, offset in raydirection to guarantee that, on intersection tests, we cross to the other sides
+
+- Ray Origin (ro) and Direction (rd) are passed into function sd_heightmap
+  Sample the highest mip level and store it, scaled with HM_Height_Factor, in var h
+  build the AABB from h and world space extent (currently same as uv-space from 0.0 to 1.0)
+  - this approach differs from the Quadtree Displacement Mapping slides
+    there the AABB is slightly higher than the heighest level mipmap level's height value, which leads to one additional ray step 
+  Compute an inverted ray direction (rd_inv = 1.0 / rd), it will be used in the ray-AABB intersection test, as well as later on
+  Intersect ray with AABB, test returns bool true if hit, as well as enter (closest) and exit (farthest) depths
+  - no hit -> exit early
+  - hit -> compute hitpoint P from rd and closest hit depth + Epsilon (to gurantee P being inside of AABB)
+
+- Store hit point into variable p (offset by Epsilon), this point will be updated with new data
+  Initialize varibles:
+  int level: from highest mip level index constant, keeps track of the level we are traversing
+  int lod_res = 1: the resolution of the mip level we are traversing, here we are using a 2^x resolution texture in u and v
+  uint step_count: ray step count along the ray, to compare to a maximum ray count as abort condition
+
+- while level > 0 and step_count < Max_Ray_Steps
+  - decrement level index by 1, s.t. we sample from the next higher resolution level
+    increment step_count by 1
+  - derive normalized uv texture coordinates from P.xz WS (currently no op, as heighmap minmax XZ = (0.0, 1.0))
+    recompute lod_res (we don't need it in this scope right no, however its used in shading computations after loop exit)
+    sample heightmap h at current uv and LOD level
+    if h is higher or equal to courrent point's y coord:
+    - we simply enter the next while loop step
+    - else (if lower than the the current point's y coord (h < P.y) )
+      we compute a predictive point Q, which, continuing along rd, would have the same Y coord as h (Q.y = h)
+      - in that computation we use the absolute of rd_inv.y for two reasons
+        1. rd in generall points downwards (its Y being negative) as we observe the terrain from top, thus raysteps would be backwrads
+        2. when we flip the sign with, e.g. q = p - rd * ... looking upword results in sepping backwards possibly sampling the
+           heightmap at wrong uv and level, which leads to visible artivacts when ray origin is above the horizontal heightmap extent 
+      this point is the next P only if the ray from the current P to Q does NOT cross a texel boundary
+      to detect this we Multiply the XZ coordinates of P and Q with lod_res and discard their fractional parts with a floor operation
+      we compare the integral XY components of P and Q:
+      - if they are the same: we can assign Q to P and continue the while loop
+      - if they are not equal, we crossed a texel boundary, and need to compute the ray - boundary intersection
+        we compute the sign of the ray.xz (horizontal) direction, remapped s.t. pos = 1, neg = 0, stored in uint2 rd_texel_offset
+        so we now can easily jump to all the current texels boundaries given by integer coordinates, same as texel indices
+        we then use rd_texel_offset and texel_index combined with height 0 (AABB bottomn plane) to get a point pp, common to all
+        three planes which have to be tested for intersection
+        the following intersection test evaluates the ray and all three planes at once, yielding three distances
+        we use the closest distance to re-compute point Q, which now intersects the closes plane of the next texel in ray direction
+        last step is to increment level by 2, s.t. in the next loop we sample from next hiegher level (the next lower Res level)
+- Leaving the while loop we shade the hightmap using traversal data for visualization of correctness
+
+
+Correctness and unsolved bugs
+- if the camera (ray origin ro) is inside the AABB, looking upwards a blue plane can be seen, bug not fixed yet
+- for all rays traversing upwards, hitting the terrain, the terrain is not hit but cutoff instead
+
+
+Additional Shaders and their purpose, all related shaders 
+- coding initially started in 
+
+
+DLang side code and utilities
+
+
+Implementation Details (DLang, Vulkan)
+- Developement happend within a personal project for quick prototyping
+  - the project, called V-Playground, includes the setup of a GLFW-vulkan backend and ImGui system
+    source code is found in the "source" folder, while ImGui requires glsl shaders found in the "shader"
+    resources for the backend are created in the resource.d file, stored and managed in app.d and gui.d 
+  - a component, like sdf_heightmap (QDM), is called toy, of which several non-related exist already
+    source and shader code exists in "source/toys" folder, and "shader/toys" folder, the latter possibly with subfolders
+  - a global UBO exists, struct UBO defined in App.d which provides camera, mouse, viewport and timing data
+    as well as additional Ray Marching and Hightmap related uniform constants, used in various places
+  - single toy related data is usually passed in through Push Constants
+  - a toy MUST (at least) define:
+    - a name, to be selectable in the ImGui System
+    - a (PSO) create function, such that it can be rendered (once at startup and on key P (selected toy), to rebuild PSO at runtime)
+    - a record (Vulkan) commands function, which will be injected into the apropriate Graphics PSO location (every frame)
+    - a destroy function, responsible to destroy the toys resources (once during shutdown)
+  - additionally a toy CAN define functions to:
+    - add instance extensions (called once during vulkan init)
+    - add deveice extensions (called once during vulkan init)
+    - specify required features (called once during vulkan init)
+    - intialize CPU side data, which than can be used later to e.g. setup uniform (constant) buffer data
+    - create GPU resources and their descriptors (called once during vulkan resource creation)
+    - record Pre Renderpass commands, generally used to record compute commands including setting a compute PSO (once per frame)
+    - build toy specific gui elements (once per frame)
+  - see sdf_heightmap.d GetToy function how the functions above are registered as function pointers
+    see App.d struct Toy for the signature of these functions
+  - the functions are registerd in a Toy struct instance, which then is returned by a toy defined function GetToy
+    this function is called, and the Toy registered in main.d
+    note that each GetToy function is prepended with its namspace to resolvve collisions, e.g.:
+    toys.sdf_heightmap.GetToy (parentheses are not required to call the function, if it has no parameters)
+
+- DLang compiler and the LunarG Vulkan SDK is required for building and run the code base
+  Source: https://dlang.org/, https://www.lunarg.com/vulkan-sdk/
+
+- The code base can be build through:
+  1. command line, navigate to the code base and type:
+     "dmd run" for building and running debug (default) version, blazing fast compile time
+     "dub run --build=release" or short "dub run -b=release" for some optimizations (looong compile time, relatively)
+     additional usefull flags: https://dub.pm/cli-reference/dub-run/
+  2. VS-Code with code-d extension (reqommended), follow the short instructions found in code-d documentation
+     open the docs by pressing "shift+ctrl+p" and start typing code-d, then select "Open User Guide / Documentation"
+     DO use DUB for building, DO NOT use DMD (both mentioned in the guid)
+  
+- used Libraries:
+  - included in source code
+    - ErpteD (Vulkan Binding)
+    - V-Drive (Vulkan Abstarction)
+    - DLSL (Math Library akin to GLSL)
+    - D_ImGui (Dear ImGui Port), depends on D_SnPrintf (format library)
+    - GLFW dll
+  - fetched automatically from package server when using "dub" as build command, see bellow
+    - BindBC-GLFW (GLFW binding), depends on BindBC-Loader
+
+
+Conclusion and additional notes
+- goal of Simulatneaously raymarch analytic Signed Distance Functions (SDFs) and discrete heightmaps, including blobbyness (smooth sets) was not achieved yet
+  Raymarching a hightmap with QDM has been implemented as well as few SDFs with blobbyness (smoot set operations)
+  the merging of these two approaches not yet (see sdf_heightma_sphere.frag)
+- 
+
+
+Future work
+- Alternative approach to editor-only blobbyness between Hightmaps and SDFs
+  Originally we used only Hightmaps to generate the resulting Voxels. This process, as well as the resulting voxel space, could be extended
+  to also store the surface distances in the empty space. Then it would be trivial to combine the voxelized terrain with SDFs.
