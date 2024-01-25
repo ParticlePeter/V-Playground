@@ -27,7 +27,8 @@ layout(std140, binding = 0) uniform ubo {
 	int		HM_Max_Level;
 };
 
-layout( binding = 2 ) uniform sampler2D noise_tex;
+layout(binding = 2) uniform sampler2D noise_tex;
+layout(binding = 3) uniform sampler2D noise_tex_linear;
 
 // rastered vertex attributes and output
 layout(location = 0) in   vec2 vs_ndc_xy;  	// input from vertex shader
@@ -180,10 +181,37 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
 	// Intersect ray with lLinear interpolation of p's texel and its closest neighbor pixel in ray direction
 	// Get the final point on the slope between the current cell and its closest cell (in +- ray dir)
-	// vec3 rd_abs = abs(rd);
-	// uint max_comp = 2 * uint(rd_abs.x < rd_abs.z);
-	// vec3 q = p + rd * rd_inv[ max_comp ] * (p[ max_comp ] + sign(rd)[ max_comp ] / Resolution.x);
-	// p = mix(q, p, Resolution.x * fract(p[ max_comp ]));
+	// 1. decide to use previous or next pixel in major ray direction (the larger one of absolute rd x and z components)
+	//	- multiply uv coordinate with Mip Level 0 Resolution and store its fractional part
+	//	- if fract of abs major ray direction >= 0.5
+	//		- snap p in rd onto the current pixel in major ray dir
+	//		- compute q with advancing ray in rd direction of one texel size of major ray direction
+	//	- if fract of abs major ray direction < 0.5
+	//		- snap p in rd onto the previous pixel in major ray dir and proceed as above
+	// 2. sample hight from texture corresponding to p and q uv values to get line segment
+	// 3. intersect ray with line segment (in 2D, ignoring major ray direction)
+	//  - use linear function form f(x) = ax + b (https://en.wikipedia.org/wiki/Linear_function_(calculus)) for ray and line segment
+    //  - intesect lines with equation ax + c = bx + d and extracting x (https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection#Given_two_line_equations)
+    //
+
+	/*
+    // 1. decide to use previous or next pixel for interpolation
+    vec3  rd_abs = abs(rd);
+	uint  max_comp = 2 * uint(rd_abs.x < rd_abs.z);
+	vec2  tex_coord = p.xz * lod_res;	// texture coordinate, needs to be properly computed when min and max bounds are given
+	//float texel_size = 1.0 / Resolution.x;		// = lod_res_inv // must later ... " ...
+    float texel_fract = abs(fract(tex_coord[max_comp >> 1]));
+	int   dir_sign = 2 * int(texel_fract >= 0.5) - 1;
+    vec3  q = p + rd * (texel_fract - 0.5) * dir_sign * lod_res_inv * rd_inv[max_comp];
+	vec3  r = q + rd * dir_sign * lod_res_inv * rd_inv[max_comp];
+
+    // 2. sample hight from texture corresponding to p and q uv values to get line segment
+    q.y = HM_Height_Factor * textureLod(noise_tex_linear, q.xz, level).r;
+    r.y = HM_Height_Factor * textureLod(noise_tex_linear, r.xz, level).r;
+	*/
+
+
+
 
 	// Coloring of resulting sampling points
 	float t = p.y / HM_Height_Factor;

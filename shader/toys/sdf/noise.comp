@@ -16,7 +16,7 @@ layout( push_constant ) uniform Push_Constant {
 
 
 // Write only to one channel 16 bit float image
-layout(binding = 3, r16f /*rgba16f*/) uniform restrict writeonly image2D noise_img[];
+layout(binding = 4, r16f /*rgba16f*/) uniform restrict writeonly image2D noise_img[];
 
 
 // Simplex 2D noise
