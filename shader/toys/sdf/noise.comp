@@ -19,7 +19,7 @@ layout( push_constant ) uniform Push_Constant {
 layout(binding = 4, r16f /*rgba16f*/) uniform restrict writeonly image2D noise_img[];
 
 
-// Simplex 2D noise
+// Simplex 2D noise, source: https://gist.github.com/patriciogonzalezvivo/670c22f3966e662d2f83
 //
 vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
 
