@@ -1,3 +1,5 @@
+// reference raymarch implementation, source: https://www.shadertoy.com/view/XsB3Rm
+
 // ray marching
 const int max_iterations = 512;
 const float stop_threshold = 0.001;
