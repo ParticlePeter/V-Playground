@@ -128,11 +128,39 @@ Correctness and unsolved bugs
 - for all rays traversing upwards, hitting the terrain, the terrain is not hit but cutoff instead
 
 
-Additional Shaders and their purpose, all related shaders 
-- coding initially started in 
+Additional Shaders and their purpose
+- sdf related shaders found in toys/sdf
+  - noise.comp                : compute shader to creat a simplex noise, source is mentioned in shader file
+  - mimap_max.comp            : brute force max mipmap chain generation from the heightmap (simplex noise)
+  - noise_vis.vert/.frag      : to visualize generated noise and its pyramid levels
+
+  - sdf.vert                  : procedurally generates a screen aligned triangle and corresponding UVs for raymarching
+                                it is used in conjunction with various .frag shaders
+  - sdf.glsl                  : Copy of https://www.shadertoy.com/view/XsB3Rm, reference raymarch Implementation
+                                partially used in sdf.frag
+  - sdf.frag                  : coding initially started in this shader, lot of experiments with raymarching, SDFs an initial QDM
+                                sdf_heightmap (QDM) function is NOT the latest state, it was extracted to sdf_heightmap.frag and continued there
+  - sdf_heightmap.frag        : working implementation of QDM heightmap raymarching
+  - sdf_heightmap_sphere.frag : initial experiments of blobbyness between QDM heightmap and SDF sphere, not finished
+  - sdf_tube.vert / .frag     : implemented Inigo Quilez' old live coding youtube video, source in shader code
+
+  - debug/hm_poly.vert        : procedurally a polygonal (partial) qube representation of the hightmap pyramids
+  - debug/hm_rays.vert        : implements the heightmap function from sdf_heightmap.frag as vertex shader,
+                                drawing a user definable count of rays as lines with vertices at each ray step
+                                from a user definable additional camera  
+  
+  
+Application V-Playground
+- V-Playground is a personal project for quick prototyping, it includes the setup of a GLFW-vulkan backend and ImGui system.
+  The App sets up a GLFW-vulkan backend and a rudimentary ImGui system, which is extendable by so-called toys.
+  On Start we drectly see the raymarched QDM hightmap, represented sdf_heightmap toy.
+  On the left side are gui widges, of which only the first three are playground related, all others for sdf_heightmap
+  1. Selct the ID of the fullscreen monitor and enter / exit fullscreen with ALT + ENTER key combo
+  2. The Title Playground with Toys
+  3. Choose a toy from combo widget
 
 
-DLang side code and utilities
+
 
 
 Implementation Details (DLang, Vulkan)
@@ -169,11 +197,11 @@ Implementation Details (DLang, Vulkan)
   Source: https://dlang.org/, https://www.lunarg.com/vulkan-sdk/
 
 - The code base can be build through:
-  1. command line, navigate to the code base and type:
+  1. command line (good enough for shader tweaking) navigate to the code base and type:
      "dmd run" for building and running debug (default) version, blazing fast compile time
      "dub run --build=release" or short "dub run -b=release" for some optimizations (looong compile time, relatively)
      additional usefull flags: https://dub.pm/cli-reference/dub-run/
-  2. VS-Code with code-d extension (reqommended), follow the short instructions found in code-d documentation
+  2. VS-Code with code-d extension (recommended for development), follow the short instructions found in code-d documentation
      open the docs by pressing "shift+ctrl+p" and start typing code-d, then select "Open User Guide / Documentation"
      DO use DUB for building, DO NOT use DMD (both mentioned in the guid)
   
@@ -191,7 +219,7 @@ Implementation Details (DLang, Vulkan)
 Conclusion and additional notes
 - goal of Simulatneaously raymarch analytic Signed Distance Functions (SDFs) and discrete heightmaps, including blobbyness (smooth sets) was not achieved yet
   Raymarching a hightmap with QDM has been implemented as well as few SDFs with blobbyness (smoot set operations)
-  the merging of these two approaches not yet (see sdf_heightma_sphere.frag)
+  the merging of these two approaches not yet (see sdf_heightmap_sphere.frag)
 - 
 
 
