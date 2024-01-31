@@ -17,7 +17,7 @@ layout(std140, binding = 0) uniform ubo {
 	float	Speed;
 
 	// Ray Marching
-	uint	MaxRaySteps;
+	uint	Max_Ray_Steps;
 	float	Epsilon;
 
 	// Heightmap
@@ -39,13 +39,13 @@ layout(location = 0) out  vec4 fs_color;  	// output from fragment shader
 void genRay(out vec3 ro, out vec3 rd)  {
 	float DEG_TO_RAD = 0.01745329238474369049072265625;
 	float frag_size = 2.0 * tan(0.5 * FOV * DEG_TO_RAD) / Resolution.y;
-	vec2 ray_trg = vec2(1, -1) * (gl_FragCoord.xy - 0.5 * (Resolution - 1));	// Flip gl_FragCoord.y, as world is Y-up and VK FragCoord Y-down
-	rd = normalize(mat3(CAMM) * vec3(frag_size * ray_trg, 1));
+	vec2 ray_target = vec2(1, -1) * (gl_FragCoord.xy - 0.5 * (Resolution - 1));	// Flip gl_FragCoord.y, as world is Y-up and VK FragCoord Y-down (same as HLSL)
+	rd = normalize(mat3(CAMM) * vec3(frag_size * ray_target, 1));
 	ro = CAMM[3].xyz;
 
 	// Orthographic Rays
 	// rd = CAMM[2].xyz;
-    // ro = CAMM[3].xyz + HM_Scale / 64.0 * (ray_trg.x * CAMM[0].xyz + ray_trg.y * CAMM[1].xyz);
+    // ro = CAMM[3].xyz + HM_Scale / 64.0 * (ray_target.x * CAMM[0].xyz + ray_target.y * CAMM[1].xyz);
 }
 
 // axis aligned bounding box, returns min and max hit 
@@ -63,7 +63,7 @@ bool aabb(vec3 ro, vec3 rd_inv, vec3 b_min, vec3 b_max, inout vec2 e) {
 
 // rays not hitting the heightmap
 vec4 far_plane() {
-	fs_color = vec4(gl_FragCoord.xy / Resolution, 0, 1);
+	//fs_color = vec4(gl_FragCoord.xy / Resolution, 0, 1);
 	fs_color = vec4(vec3(0.25), 1.0);
 	return vec4(fs_color.rgb, Far);
 }
@@ -74,7 +74,7 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 	// if (rd.y >= 0.0f)
 	// 	return far_plane();
 
-	float h = HM_Height_Factor * textureLod(noise_tex, vec2(0.5), HM_Max_Level).r;	//HM_Scale * HM_Height_Factor;
+	float h = HM_Height_Factor * textureLod(heightmap, vec2(0.5), HM_Max_Level).r;	//HM_Scale * HM_Height_Factor;
 
 	// build an axis aligned aounding box (AABB) arround the heightmap and test for entry points
     // aabb test requires inverted ray direction: rd_inv = 1.0 / rd with extra code to avoid div by 0
@@ -87,7 +87,7 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
 	// reaching here we have a AABB hit and can compute the WS hit point
 	// we need an epsilon, to guerantee that the hit point ends up slightly inside the box
-	vec3 p = ro + (Epsilon + bb_near_far.x) * rd;
+	vec3 p = ro + (Epsilon + abs(bb_near_far.x)) * rd;
 
 	//
 	// Quadtree Displacement Mapping basic pseudo code
@@ -97,17 +97,9 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 	int level = HM_Max_Level;
 	int lod_res = 1;
 
-	// We calculate ray movement vector in inter-cell numbers.
-	uvec2 texelPlaneOffset = uvec2(sign(rd.xz) + 1) / 2;
-
 	// Main loop
 	uint step_count = 0;
-	while (level >= HM_Min_Level && step_count < MaxRaySteps) {
-
-		// Early out if the ray exists the AABB, Todo(pp): substitute 0 and 1 with editable BBox bounds
-        if (any(lessThanEqual(p.xz, vec2(0))) || any(greaterThanEqual(p.xz, vec2(1)))) {
-            return far_plane();
-        }
+	while (level > HM_Min_Level && step_count < Max_Ray_Steps) {
 
 		// default descent in hierarchy, nullified by ascend in case of cell crossing
 		// level = HM_Max_Level is already used for our bounding box, so we take the next higher one
@@ -116,19 +108,16 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
 		// We get current cell minimum plane using tex2Dlod.
 		vec2 uv = p.xz;	//world_to_uv(p2.xz);	// Use the latter with user defined BBox bounds
-		h = HM_Height_Factor * textureLod(noise_tex, uv, level).r;
 		lod_res = 1 << (HM_Max_Level - level);
+		h = HM_Height_Factor * textureLod(heightmap, uv, level).r;
 
         // If we are not blocked by the cell we move the ray.
         if (h < p.y) {
 
 			// We calculate predictive new ray position, which moves as far as the hight of the current cell
-			vec3 q = p + rd * rd_inv.y * (h - p.y);
+			vec3 q = p + rd * abs(rd_inv.y) * (p.y - h);
 
-			// We compute current and predictive position.
-			// Calculations are performed in cell integer numbers.
-            
-            float lod_res_inv = 1.0 / lod_res;
+			// We compute current and predictive position. Calculations are performed in cell integer numbers.
             ivec4 texel_idx = ivec4(floor(vec4(p.xz, q.xz) * lod_res));	// Todo(pp): map texel_idx from user defined bbox bounds
             // ivec4 texel_idx = ivec4((vec4(p.xz, q.xz) + 0.5 * HM_Scale) / HM_Scale) * lod_res;
 
@@ -141,10 +130,14 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
                 // https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-plane-and-ray-disk-intersection.html  
                 // With matrix multiply: t = (mat3(1.0) * (pp - p)) / (mat3(1.0) * rd);
                 // As the planes are axis aligned, we use an identity matrix, which results in no-ops, hence not needed
-				//
+
+				// We calculate the 2D ray movement vector in cell 2D indixes
+				// positive direction: 1, negative: 0, s.t. we can jump to the cell boundaries
+				uvec2 rd_texel_offset = uvec2(sign(rd.xz) + 1) / 2;
+
 				// plane point (pp) of X, Z and Y planes, then swizzled back into X, Y and Z planes
-                vec3 pp = vec3((texel_idx.xy + texelPlaneOffset) * lod_res_inv, 0);   
-                vec3 t = (pp.xzy - p) * rd_inv;                     // we swizzele, to move the Y plane coord (0) into the propper position
+                vec3 pp = vec3(vec2(texel_idx.xy + rd_texel_offset) / lod_res, 0);   
+                vec3 t = (pp.xzy - p) * rd_inv;	// we swizzele, to move the Y plane coord (0) into the propper position
                 
 				// Epsilon is needed to guarantee that we end up in the next texel, otherwise we might get stuck
 				q = p + (Epsilon + min(t.x, min(t.y, t.z))) * rd;	// Epsilon os needed to guarantee that we end up in the next texel, otherwise we might get stuck
@@ -154,10 +147,14 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 			// Final ray movement
 			p = q;
 
+			// Early out if the ray exists the AABB, Todo(pp): substitute 0 and 1 with editable BBox bounds
+			if (any(lessThanEqual(p.xz, vec2(0))) || any(greaterThanEqual(p.xz, vec2(1)))) {
+				return far_plane();
+			}
 		}
 	}
 
-	// Get the final point on the slope between the current cell and its closest cell (in +- ray dir)
+    // Get the final point on the slope between the current cell and its closest cell (in +- ray dir)
 	// 1. decide to use previous or next pixel in major ray direction (the larger one of absolute rd x and z components)
 	//	- multiply uv coordinate with Mip Level 0 Resolution and store its fractional part
 	//	- if fract of abs major ray direction >= 0.5
