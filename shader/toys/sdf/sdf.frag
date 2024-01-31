@@ -89,7 +89,7 @@ vec4 far_plane() {
 	return vec4(fs_color.rgb, Far);
 }
 
-// Hightmap Distance field
+
 // Hightmap Distance field
 vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
@@ -117,14 +117,15 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
 	// Compute starting Mip Level
 	int level = HM_Max_Level;
-	int lod_res = 1;
+	int   lod_res = 1;
+	float lod_res_inv = 1.0;
 
 	// We calculate ray movement vector in inter-cell numbers.
 	uvec2 texelPlaneOffset = uvec2(sign(rd.xz) + 1) / 2;
 
 	// Main loop
 	uint step_count = 0;
-	while (level >= HM_Min_Level && step_count < MaxRaySteps) {
+	while (level > HM_Min_Level && step_count < MaxRaySteps) {
 
 		// Early out if the ray exists the AABB, Todo(pp): substitute 0 and 1 with editable BBox bounds
         if (any(lessThanEqual(p.xz, vec2(0))) || any(greaterThanEqual(p.xz, vec2(1)))) {
@@ -140,6 +141,7 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 		vec2 uv = p.xz;	//world_to_uv(p2.xz);	// Use the latter with user defined BBox bounds
 		h = HM_Height_Factor * textureLod(noise_tex, uv, level).r;
 		lod_res = 1 << (HM_Max_Level - level);
+		lod_res_inv = 1.0 / lod_res;
 
         // If we are not blocked by the cell we move the ray.
         if (h < p.y) {
@@ -149,8 +151,6 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
 			// We compute current and predictive position.
 			// Calculations are performed in cell integer numbers.
-            
-            float lod_res_inv = 1.0 / lod_res;
             ivec4 texel_idx = ivec4(floor(vec4(p.xz, q.xz) * lod_res));	// Todo(pp): map texel_idx from user defined bbox bounds
             // ivec4 texel_idx = ivec4((vec4(p.xz, q.xz) + 0.5 * HM_Scale) / HM_Scale) * lod_res;
 
@@ -175,12 +175,10 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 
 			// Final ray movement
 			p = q;
-
 		}
 	}
 
-	// Intersect ray with lLinear interpolation of p's texel and its closest neighbor pixel in ray direction
-	// Get the final point on the slope between the current cell and its closest cell (in +- ray dir)
+    // Get the final point on the slope between the current cell and its closest cell (in +- ray dir)
 	// 1. decide to use previous or next pixel in major ray direction (the larger one of absolute rd x and z components)
 	//	- multiply uv coordinate with Mip Level 0 Resolution and store its fractional part
 	//	- if fract of abs major ray direction >= 0.5
@@ -216,21 +214,10 @@ vec4 sd_heightmap(vec3 ro, vec3 rd) {//, inout float depth, inout vec3 normal) {
 	// Coloring of resulting sampling points
 	float t = p.y / HM_Height_Factor;
 	float checker = float((uint(32.0 * p.x) % 2) ^ (uint(32.0 * p.z) % 2));
-	vec3 cell_color = vec3(floor(p.xz * lod_res) / (lod_res - 1), 0);	//checker);	// vec3(1,0,0);
+	vec3 cell_color = vec3(floor(p.xz * lod_res) / (lod_res - 1), 0);	// vec3(1,0,0);
 	cell_color = mix(vec3(0, 0, 0.25), cell_color, t);
 	fs_color = vec4(cell_color, 1);
 	return vec4(cell_color, length(p - ro));
-
-	// float duv = 1.0 / 1024;
-	// uv = (p2.xz + 0.5 * HM_Scale) / HM_Scale;
-	// float du = textureLod(noise_tex, uv + vec2(duv, 0), 0).x - textureLod(noise_tex, uv - vec2(duv, 0), 0).x;
-	// float dv = textureLod(noise_tex, uv + vec2(0, duv), 0).x - textureLod(noise_tex, uv - vec2(0, duv), 0).x;
-	// n = cross(normalize(vec3(0, 0, dv)), normalize(vec3(du, 0, 0)));
-	// l = dot(n, rd);
-	// vec3 s = vec3(uv, 0);
-	// fs_color = vec4(s, 1);
-	// return p2;
-	//return vec4(0,0,0,length(p2 - ro));
 }
 
 
