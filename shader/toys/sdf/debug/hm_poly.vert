@@ -61,7 +61,7 @@ void main() {
         case 4: pos.xyz = vec3(1, VI & 1, VI >> 1); break;
     }
     pos.xz = (pos.xz + ins) / cells_per_axis;
-    float h = HM_Scale * textureLod(noise_tex, (ins + 0.5) / cells_per_axis, HM_Min_Level).x;
+    float h = textureLod(noise_tex, (ins + 0.5) / cells_per_axis, HM_Min_Level).x;
     pos.y *= HM_Height_Factor * h;
     gl_Position = WVPM * pos;
     vs_color = P_Color * vec4(h * (ins + 1) / cells_per_axis, 0, 1);
