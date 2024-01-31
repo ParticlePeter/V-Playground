@@ -85,12 +85,15 @@ void createMemoryObjects( ref App app ) {
     // create uniform buffers - called once
     //
 
-    auto wvpm_buffer = Meta_Buffer_T!( App.Ubo_Buffer )( app )
+    app.ubo_buffer = Meta_Buffer_T!( App.Ubo_Buffer )( app )
         .usage( VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT )
         .bufferSize( App.UBO.sizeof )
         .construct( VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT )
         .mapMemory( app.ubo )
-        .reset( app.ubo_buffer );
+        .reset;
+
+    // as the ubo member is a mapped pointer, we need to init it with UBO default values
+    *app.ubo = App.UBO.init;
 
     // update projection matrix from member data _fovy, _near, _far and aspect of
     // the swapchain extent, initialized once, resized by the input.windowSizeCallback
@@ -222,7 +225,7 @@ void resizeResources( ref App app, VkPresentModeKHR request_present_mode = VK_PR
         .presentMode( app.present_mode )
         .minImageCount( 2 )
         .imageArrayLayers( 1 )
-        .imageUsage( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT )
+        .imageUsage( VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT )
         .construct
         .reset( app.swapchain );
 

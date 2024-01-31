@@ -63,6 +63,7 @@ struct App {
 
     // Todo(pp): calculate best possible near and far clip planes when manipulating the trackball
 
+
     // surface and swapchain
     Core_Swapchain_Queue_Extent swapchain;
     @setting VkPresentModeKHR   present_mode = VK_PRESENT_MODE_MAX_ENUM_KHR;
@@ -90,24 +91,16 @@ struct App {
 	    float   epsilon = 0.0001f;
 
         // Heightmap
-        float   hm_scale   = 10.0f; 
+        float   hm_scale   = 1.0f; 
         float   hm_height_factor = 0.5f;
-        int     hm_min_level = 0;
-        int     hm_max_level = 0;
+        int     hm_min_level =  0;
+        int     hm_max_level = 10;
     }   
 
     UBO*  ubo;              // pointer to mapped memory
     float speed_amp = 1.0f; // speed amplifier for accumulation
     float last_time;
 
-    void initUBO() {
-        ubo.max_ray_steps = 256;
-        ubo.epsilon  = 0.0001f;
-        ubo.hm_scale = 1.0f; 
-        ubo.hm_height_factor = 0.5f;
-        ubo.hm_min_level =  0;  // update sdf_hightmap.cells_per_axis !!!
-        ubo.hm_max_level = 10;  // - " -
-    }
 
     // memory Resources
     alias                       Ubo_Buffer = Core_Buffer_T!( 0, BMC.Memory | BMC.Mem_Range );
@@ -135,15 +128,21 @@ struct App {
     struct Toy {
         nothrow @nogc:
         string                                      name;
+
+        // called once at startup, in that order, at various locations
         void function(ref App_Meta_Init)            extInstance;
         void function(ref App_Meta_Init)            extDevice;
         void function(ref App_Meta_Init)            features;
         void function(ref App)                      initialize;
         void function(ref App, ref Meta_Descriptor) descriptor;
         void function(ref App)                      create;
+
+        // called once per frame
         void function(ref App, VkCommandBuffer)     record;
         void function(ref App, VkCommandBuffer)     recordPreRP;
         void function(ref App)                      widgets;
+
+        // called during shut down
         void function(ref App)                      destroy;
     }
 
@@ -245,15 +244,10 @@ struct App {
     // initial draw to overlap CPU recording and GPU drawing
     void drawInit() {
 
-        // init ubo
-        initUBO;
-
         // check if window was resized and handle the case
         if( window_resized ) {
             window_resized = false;
             recreateSwapchain;
-            //import resources : createCommands;
-            //this.createCommands;
         }
 
         // acquire next swapchain image, we use semaphore[0] which is also the first one on which we wait before our first real draw
