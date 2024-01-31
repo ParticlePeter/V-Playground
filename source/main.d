@@ -42,6 +42,7 @@ int main() {
         app.my_toys.append( toys.hex_tess.GetToy );
         app.my_toys.append( toys.sdf_heightmap.GetToy );
         app.my_toys.append( toys.cam_debug.GetToy );
+        app.my_toys.append( toys.compute_swapchain.GetToy );
 
 
         // initialize vulkan
