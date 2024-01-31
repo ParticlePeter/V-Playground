@@ -18,7 +18,7 @@ private {
 
     // Noise and Hight Map related resources
     //alias Heightmap = Core_Image_T!( 11, 1, IMC.Memory | IMC.Sub_Range );  // 11 Views, 1 Sampler
-    alias Heightmap = Core_Image_Memory_T!( 12, 1, IMC.Last_Range );  // 11 Views, 1 Sampler
+    alias Heightmap = Core_Image_Memory_T!( 12, 2, IMC.Last_Range );  // 1 full chain + 11 per mip = 12 Views, 1 nearest + 1 linear = 2 Sampler
     
     Core_Pipeline   mipmap_pso;
     Core_Pipeline   noise_pso;
@@ -41,9 +41,9 @@ private {
     HM_Rays_PC  hm_rays;
     int         hm_ray_count = 3;
     
-    vec3        ray_eye         = vec3(0.906f, 0.608f, -0.405f);    //vec3(2.0f, 1.0f, 0.5f);
-    vec3        ray_target      = vec3(0.751f, 0.477f,  0.413f);    //vec3(0.5f, 0.125f, 0.5f);
-    vec3        ray_offset      = vec3(0.0f, 0.0f, 0.01f);
+    vec3        ray_eye         = vec3(1.2f, 0.8f, -0.2f);    //vec3(0.906f, 0.608f, -0.405f);
+    vec3        ray_target      = vec3(0.5f, 0.4f, 0.3f);     //vec3(0.751f, 0.477f,  0.413f);
+    vec3        ray_offset      = vec3(0.0f, 0.0f, 0.0f);
     float       ray_angle       = 0.0f;
     float       ray_angle_speed = 0.0f;
     uint        cells_per_axis;         // intialized post app.ubo
@@ -168,23 +168,36 @@ void createDescriptor( ref App app, ref Meta_Descriptor meta_descriptor ) {
         .viewMipLevels( 0, 11 )
         .constructView( 0 ); 
 
-    if( heightmap_img.sampler.is_null )
+    if( heightmap_img.sampler[0].is_null ) {
         meta_heightmap_img
             .filter( VK_FILTER_NEAREST, VK_FILTER_NEAREST )
             .mipmap( VK_SAMPLER_MIPMAP_MODE_NEAREST, 0.0f, 12.0f )    // mode, min_lod, max_lod, lod_bias
-            .constructSampler;
+            .constructSampler(0);
+        debug app.setDebugName( meta_heightmap_img.sampler[0], "Noise Image Sampler Nearest" );
+    }
 
-    debug app.setDebugName( meta_heightmap_img.sampler, "Noise Image Sampler" );
+
+    if( heightmap_img.sampler[1].is_null ) {
+        meta_heightmap_img
+            .filter( VK_FILTER_LINEAR, VK_FILTER_LINEAR )
+            .mipmap( VK_SAMPLER_MIPMAP_MODE_NEAREST, 0.0f, 12.0f )    // mode, min_lod, max_lod, lod_bias
+            .constructSampler(1);
+        debug app.setDebugName( meta_heightmap_img.sampler[0], "Noise Image Sampler Linear" );
+    }
 
     // extract Core_Image_T from Meta_Image_T and clear temp data
     heightmap_img = meta_heightmap_img.reset;
 
-    // add descriptor for sampling
+    // add descriptor for sampling nearest
     meta_descriptor.addSamplerImageBinding( 2, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT )
-        .addSamplerImage( heightmap_img.sampler, heightmap_img.view[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+        .addSamplerImage( heightmap_img.sampler[0], heightmap_img.view[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+
+    // add descriptor for sampling linear
+    meta_descriptor.addSamplerImageBinding( 3, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT )
+        .addSamplerImage( heightmap_img.sampler[1], heightmap_img.view[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
 
     // add descriptor for compute shader rw access
-    meta_descriptor.addStorageImageBinding( 3, VK_SHADER_STAGE_COMPUTE_BIT );// | VK_SHADER_STAGE_FRAGMENT_BIT );
+    meta_descriptor.addStorageImageBinding( 4, VK_SHADER_STAGE_COMPUTE_BIT );// | VK_SHADER_STAGE_FRAGMENT_BIT );
     foreach( ref view; heightmap_img.view[ 1 .. $ ] )
         meta_descriptor.addImage( view, VK_IMAGE_LAYOUT_GENERAL );
     // meta_descriptor.addImage( heightmap_img.view[0], VK_IMAGE_LAYOUT_GENERAL );
@@ -242,7 +255,7 @@ void createRaymarchPSO( ref App app ) {
             break;
         case Scene.Modern:
             vert_shader = "shader/toys/sdf/sdf.vert";
-            frag_shader = "shader/toys/sdf/sdf_heightmap.frag";
+            frag_shader = "shader/toys/sdf/sdf.frag";
             break;
         case Scene.Noise:
             vert_shader = "shader/toys/sdf/noise_vis.vert";
@@ -331,7 +344,7 @@ void createDebugPSOs( ref App app ) nothrow @nogc {
     // create heightmap poly planes visualizer pso
     auto meta_gfx = Meta_Graphics( app );
     hm_poly_pso = meta_gfx
-        .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/debug/hm_poly.vert" ))  // deduce shader stage from file extension
+        .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/sdf/debug/hm_poly.vert" ))  // deduce shader stage from file extension
         .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/simple.frag" ))  // deduce shader stage from file extension
         .inputAssembly( VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP )                      // set the inputAssembly
         .addViewportAndScissors( VkOffset2D( 0, 0 ), app.swapchain.image_extent )   // add viewport and scissor state, necessary even if we use dynamic state
@@ -361,7 +374,7 @@ void createDebugPSOs( ref App app ) nothrow @nogc {
     }
 
     hm_rays_pso = meta_gfx
-        .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/debug/hm_rays.vert" ))  // deduce shader stage from file extension
+        .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/sdf/debug/hm_rays.vert" ))  // deduce shader stage from file extension
         .addShaderStageCreateInfo( app.createPipelineShaderStage( "shader/toys/simple.frag" ))  // deduce shader stage from file extension
         .inputAssembly( VK_PRIMITIVE_TOPOLOGY_LINE_STRIP )                          // set the inputAssembly
         .setColorBlendState( VK_FALSE )                                             // color blend state - set last added blend attachment state to on/off
