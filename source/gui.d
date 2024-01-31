@@ -363,75 +363,27 @@ struct Gui_State {
         //
         // Compute Device
         //
+        /*
         if( ImGui.CollapsingHeader( "Compute Device" )) {
             ImGui.Separator;
             ImGui.PushItemWidth( -1 );
 
-            /*
-            if( ImGui.Combo( "Device", & compute_device, device_names.fromStringz )) {
-                if( compute_device == 0 ) {
-                    this.cpuReset;
-                    this.setCpuSimFuncs;
-                    use_cpu = true;
-                    drawCmdBufferCount = sim_play_cmd_buffer_count = 1;
-                } else {
-                    this.setDefaultSimFuncs;
-                    use_cpu = false;
-                    sim_use_double &= feature_shader_double;
-                    if( play_mode == Transport.play ) {     // in profile mode this must stay 1 (switches with play/pause )
-                        sim_play_cmd_buffer_count = 2;      // as we submitted compute and draw command buffers separately
-                        if( transport == Transport.play ) { // if we are in play mode
-                            drawCmdBufferCount = 2;         // we must set this value immediately
-                        }
-                    }
-                }
-            }
-            */
             // Using the generic BeginCombo() API, you have full control over how to display the combo contents.
             // (your selection data could be an index, a pointer to the object, an id for the object, a flag intrusively
             // stored in the object itself, etc.)
 
             // Expose flags as checkbox for the demo
             ImGuiComboFlags flags = ImGuiComboFlags.None;
-            //ImGui.CheckboxFlags("ImGuiComboFlags_PopupAlignLeft", cast(uint*)&flags, ImGuiComboFlags.PopupAlignLeft);
-            //ImGui.SameLine();// HelpMarker("Only makes a difference if the popup is larger than the combo");
-            //if (ImGui.CheckboxFlags("ImGuiComboFlags_NoArrowButton", cast(uint*)&flags, ImGuiComboFlags.NoArrowButton))
-            //    flags &= ~ImGuiComboFlags.NoPreview;     // Clear the other flag, as we cannot combine both
-            //if (ImGui.CheckboxFlags("ImGuiComboFlags_NoPreview", cast(uint*)&flags, ImGuiComboFlags.NoPreview))
-            //    flags &= ~ImGuiComboFlags.NoArrowButton; // Clear the other flag, as we cannot combine both
-
-
-            const string[14] items = [ "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "IIII", "JJJJ", "KKKK", "LLLLLLL", "MMMM", "OOOOOOO" ];
-            static int test_item_idx = 0;                // Here our selection data is an index.
-            string combo_label = items[ test_item_idx ]; // Label to preview before opening the combo (technically it could be anything)(
-            if( ImGui.BeginCombo( "combo 1", combo_label, flags )) {
-                for( int i = 0; i < IM_ARRAYSIZE( items ); ++i ) {
-                    const bool is_selected = ( test_item_idx == i );
-                    if( ImGui.Selectable( items[i], is_selected ))
-                        test_item_idx = i;
-
-                    // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
-                    if( is_selected )
-                        ImGui.SetItemDefaultFocus();
-                }
-                ImGui.EndCombo();
-            }
-
-            ImGui.Separator;
             float cursor_pos_y = ImGui.GetCursorPosY();
             ImGui.SetCursorPosY(cursor_pos_y + 3);
             ImGui.Text( "VK_PRESENT_MODE_" );
             ImGui.SameLine;
             ImGui.SetCursorPosY(cursor_pos_y);
 
-//            if( ImGui.Combo( "Present Mode", & selected_present_mode, available_present_modes.ptr )) {
-//                resources.resizeResources( app, cast( VkPresentModeKHR )available_present_modes_map[ selected_present_mode ] );
-//                //app.drawInit;
-//            }
-
+            
             const string[4] present_modes = [ "IMMEDIATE_KHR", "MAILBOX_KHR", "FIFO_KHR", "FIFO_RELAXED_KHR" ];
             static int present_mode_idx = 0;                  // Here our selection data is an index.
-            combo_label = present_modes[ present_mode_idx ];  // Label to preview before opening the combo (technically it could be anything)(
+            string combo_label = present_modes[ present_mode_idx ];  // Label to preview before opening the combo (technically it could be anything)(
             if( ImGui.BeginCombo( "combo 2", combo_label )) {
                 for( int i = 0; i < IM_ARRAYSIZE( present_modes ); ++i ) {
                     const bool is_selected = ( present_mode_idx == i );
@@ -448,15 +400,17 @@ struct Gui_State {
             ImGui.PopItemWidth;
             ImGui.Separator;
             ImGui.Spacing;
+            
 
         }
+        */
 
         // Set Monitor for Fullscreen rendering
         if( ImGui.DragInt( "Fullscreen Monitor", & app.monitor_fullscreen_idx, 0.1f, 0, app.monitor_count - 1, "%d", ImGuiSliderFlags.AlwaysClamp )) {
         //    sim_step_size = step_size < 1 ? 1 : step_size;
         }
 
-        if( ImGui.CollapsingHeader( "Playground with Toys", ImGuiTreeNodeFlags.DefaultOpen )) {
+        if( ImGui.CollapsingHeader( "           Playground with Toys", ImGuiTreeNodeFlags.DefaultOpen | ImGuiTreeNodeFlags.Leaf )) {
             ImGui.Separator;
             ImGui.PushItemWidth( -1 );
 
